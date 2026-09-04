@@ -132,9 +132,15 @@ cd macos-utilities
 **Сертификат Developer ID Application.** Именно он, не «Apple Development» и не
 «Apple Distribution» — те для отладки и для App Store. Создаётся на
 [developer.apple.com/account/resources/certificates](https://developer.apple.com/account/resources/certificates)
-кнопкой «+» → **Developer ID Application**, право на выпуск есть у роли Account
-Holder или Admin. Скачанный `.cer` открывается двойным кликом и попадает
-в связку ключей. Проверка:
+кнопкой «+» → **Developer ID Application**. Нужна платная подписка Apple
+Developer Program, и выпустить такой сертификат может только Account Holder —
+роли Admin этого типа недоступны. Скачанный `.cer` открывается двойным кликом
+и попадает в связку ключей. Число сертификатов Developer ID на аккаунт
+ограничено, а приватный ключ существует в единственном экземпляре — сразу
+выгрузите его из Keychain Access в `.p12` и положите в надёжное место,
+иначе при потере машины подписывать обновления прежней личностью будет нечем.
+
+Проверка:
 
 ```bash
 security find-identity -v -p codesigning | grep "Developer ID Application"
