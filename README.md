@@ -8,6 +8,11 @@
 <img src="docs/screenshot-keep-awake.png" width="420" alt="Раздел «Mac не уходит в сон»">
 </p>
 
+Интерфейс на русском и английском, переключается внизу боковой панели.
+При первом запуске берётся язык системы.
+
+<p><img src="docs/screenshot-input-source-en.png" width="420" alt="The same section in English"></p>
+
 Приложение ничего не прячет. Каждый фикс — обычный bash-скрипт с подробными
 комментариями, который лежит внутри бандла; кнопка **«Показать весь скрипт»**
 открывает ровно тот код, который будет выполнен. Права администратора нужны
@@ -15,7 +20,7 @@
 
 ## Установка
 
-Скачать `MacOS-Utilities-1.1.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.2.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel.
@@ -38,10 +43,10 @@ macOS 13 (Ventura) и новее, Apple Silicon и Intel.
 Перед применением приложение проверяет версию macOS, число включённых раскладок
 (меньше двух — переключать нечего) и хвосты от Karabiner-Elements.
 
-**Откат.** Первое применение сохраняет прежнее состояние в
+**Отмена.** Первое включение сохраняет прежнее состояние в
 `~/Library/Application Support/MacOS Utilities/input-source-backup.json`. Кнопка
-«Откатить» возвращает системный шорткат к прежнему значению, снимает ремап
-и убирает LaunchAgent.
+«Отменить изменения» возвращает системный шорткат к прежнему значению, снимает
+ремап и убирает LaunchAgent.
 
 Права администратора не нужны: всё перечисленное — настройки текущего пользователя.
 
@@ -60,23 +65,24 @@ AirDrop; launchd поднимает его обратно сам.
 Так выглядит поиск:
 
 ```
-== Хелперы AirDrop (порог зависания 120с) ==
-  95340   15д21ч   AirDrop        ЗАВИС
-          застрял файл: /Users/you/Downloads/photos/IMG_4557.jpg
-  95326   15д21ч   ShareSheetUI   ЗАВИС
-  38712   14с      AirDrop        ok
+== Окна AirDrop (зависшим считается то, что живёт дольше 5 мин) ==
+  95340   15d21h   AirDrop        ЗАВИСЛО
+          • застрял файл: /Users/you/Downloads/photos/IMG_4557.jpg
+  95326   15d21h   ShareSheetUI   ЗАВИСЛО
+  38712   14s      AirDrop        норма
 ```
 
 Параметры:
 
-- **порог зависания** — 30 секунд / 2 минуты / 10 минут / любой возраст.
-  По умолчанию 2 минуты, чтобы не убить окно, которое вы открыли только что;
 - **перезапустить Finder** — если окно AirDrop нарисовано, но не откликается.
   Перед запуском приложение предупреждает, что окна Finder закроются
   и рабочий стол перерисуется;
-- **передёрнуть awdl0** — интерфейс, на котором AirDrop ищет устройства.
-  Лечит «Mac не видит iPhone». Единственное место, где нужен пароль
-  администратора — его спрашивает системное окно, не терминал.
+- **перезапустить Wi-Fi для AirDrop** — лечит «Mac не видит iPhone».
+  Единственное место, где нужен пароль администратора — его спрашивает
+  системное окно, не терминал.
+
+Зависшим считается окно, которое живёт дольше пяти минут: столько открытый
+шит AirDrop не живёт, а свежий случайно не закроется.
 
 ## Mac не уходит в сон
 
@@ -96,9 +102,9 @@ AirDrop; launchd поднимает его обратно сам.
 
 - Не отправляет никуда данные и не ходит в сеть.
 - Не ставит фоновых агентов от своего имени. Единственный LaunchAgent —
-  `com.user.capslock2f18` — появляется только по кнопке «Применить» в первом
-  разделе и удаляется по кнопке «Откатить».
-- Не требует прав администратора нигде, кроме опции «передёрнуть awdl0».
+  `com.user.capslock2f18` — появляется только по кнопке «Включить» в первом
+  разделе и удаляется по кнопке «Отменить изменения».
+- Не требует прав администратора нигде, кроме опции «Перезапустить Wi-Fi для AirDrop».
 
 ## Сборка из исходников
 
@@ -109,7 +115,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.1.0.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.2.0.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 
@@ -117,6 +123,9 @@ cd macos-utilities
 ./Resources/Scripts/input-source-fix.sh check
 ./Resources/Scripts/airdrop-fix.sh list
 ./Resources/Scripts/airdrop-fix.sh selftest
+
+# на английском
+./Resources/Scripts/airdrop-fix.sh check --lang en
 ```
 
 Устройство проекта, подпись и выпуск релиза — в [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
@@ -133,4 +142,7 @@ shortcut, surviving reboots), a cleaner for stuck AirDrop share-sheet helper
 processes with a `sharingd` restart, and a keep-awake toggle built on IOKit power
 assertions that lets the display sleep while the system stays up. Every fix is a
 commented bash script shipped inside the bundle and viewable from the UI before
-you run it. No admin password is required except for the optional `awdl0` bounce.
+you run it. No admin password is required except for the optional Wi-Fi restart.
+
+The interface and the script output are available in English — switch at the
+bottom of the sidebar; the app picks your system language on first launch.

@@ -27,8 +27,8 @@ func render() -> NSImage {
     ctx.addPath(shape)
     ctx.clip()
     let colors = [
-        NSColor(srgbRed: 0.29, green: 0.51, blue: 0.98, alpha: 1).cgColor,   // синий сверху
-        NSColor(srgbRed: 0.36, green: 0.29, blue: 0.85, alpha: 1).cgColor,   // индиго снизу
+        NSColor(srgbRed: 0.24, green: 0.80, blue: 0.78, alpha: 1).cgColor,   // бирюза сверху
+        NSColor(srgbRed: 0.04, green: 0.48, blue: 0.55, alpha: 1).cgColor,   // глубокая бирюза снизу
     ] as CFArray
     let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                               colors: colors, locations: [0, 1])!
@@ -36,22 +36,33 @@ func render() -> NSImage {
                            start: CGPoint(x: rect.minX, y: rect.maxY),
                            end: CGPoint(x: rect.maxX, y: rect.minY),
                            options: [])
-    // Светлый блик по верхней кромке — материал ловит свет.
-    ctx.setFillColor(NSColor.white.withAlphaComponent(0.13).cgColor)
-    ctx.fill(CGRect(x: rect.minX, y: rect.midY, width: rect.width, height: rect.height / 2))
+    // Блик по верхней кромке — материал ловит свет. Именно градиент, а не
+    // залитый прямоугольник: заливка оставляла видимую горизонтальную границу.
+    let gloss = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                           colors: [NSColor.white.withAlphaComponent(0.16).cgColor,
+                                    NSColor.white.withAlphaComponent(0.0).cgColor] as CFArray,
+                           locations: [0, 1])!
+    ctx.drawLinearGradient(gloss, start: CGPoint(x: rect.midX, y: rect.maxY),
+                           end: CGPoint(x: rect.midX, y: rect.midY), options: [])
     ctx.restoreGState()
 
     // Символ инструмента поверх — из системного набора SF Symbols.
-    let config = NSImage.SymbolConfiguration(pointSize: size * 0.40, weight: .semibold)
-    if let symbol = NSImage(systemSymbolName: "wrench.and.screwdriver.fill",
+    let config = NSImage.SymbolConfiguration(pointSize: size * 0.42, weight: .semibold)
+    if let symbol = NSImage(systemSymbolName: "wrench.adjustable.fill",
                             accessibilityDescription: nil)?
         .withSymbolConfiguration(config) {
+        // Символ раскрашивается заливкой поверх собственной формы: у шаблонного
+        // изображения своего цвета нет, а set() на общий контекст не действует.
         let s = symbol.size
-        let target = NSRect(x: (size - s.width) / 2, y: (size - s.height) / 2,
-                            width: s.width, height: s.height)
+        let white = NSImage(size: s)
+        white.lockFocus()
+        symbol.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
         NSColor.white.set()
-        symbol.isTemplate = true
-        symbol.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1.0)
+        NSRect(origin: .zero, size: s).fill(using: .sourceAtop)
+        white.unlockFocus()
+        white.draw(in: NSRect(x: (size - s.width) / 2, y: (size - s.height) / 2,
+                              width: s.width, height: s.height),
+                   from: .zero, operation: .sourceOver, fraction: 1.0)
     }
 
     image.unlockFocus()

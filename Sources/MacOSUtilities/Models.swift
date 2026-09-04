@@ -101,7 +101,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .inputSource: return .blue
-        case .airdrop:     return .teal
+        case .airdrop:     return .orange
         case .keepAwake:   return .green
         }
     }
