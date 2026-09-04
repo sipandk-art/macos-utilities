@@ -91,6 +91,20 @@ else
 fi
 codesign --verify --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
 
+# Нотаризация самого бандла, а не только DMG. Штамп внутри .app нужен для
+# случая, когда приложение уже перенесли в /Applications, а интернета нет:
+# без штампа Gatekeeper пойдёт спрашивать вердикт у Apple и не сможет.
+if [ -n "$SIGN_ID" ] && [ -n "$NOTARY_PROFILE" ]; then
+  echo "==> Нотаризация приложения (несколько минут)"
+  ZIP="$BUILD/$PRODUCT-notarize.zip"
+  rm -f "$ZIP"
+  # ditto сохраняет структуру бандла и подпись; обычный zip их портит.
+  /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
+  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$APP"
+  rm -f "$ZIP"
+fi
+
 echo "==> Готово: $APP"
 
 if [ "${1:-}" = "--dmg" ]; then
