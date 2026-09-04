@@ -11,6 +11,7 @@ struct PressScale: ButtonStyle {
 
 struct KeepAwakeView: View {
     @EnvironmentObject private var keepAwake: KeepAwake
+    @EnvironmentObject private var loc: Localization
     @State private var showScript = false
 
     var body: some View {
@@ -18,13 +19,17 @@ struct KeepAwakeView: View {
             header: PageHeader(
                 symbol: Tool.keepAwake.symbol,
                 tint: Tool.keepAwake.tint,
-                title: "Mac не уходит в сон",
-                subtitle: """
-                Пока тумблер включён, Mac не засыпает и не рвёт сетевые соединения — \
-                долгая задача нейросети-агента или выгрузка не оборвутся на середине. \
-                Экран при этом продолжает гаснуть по системному таймеру: подсветка \
-                не тратится впустую, машина остаётся в работе.
-                """
+                title: loc.t("Mac не уходит в сон", "Keeping the Mac awake"),
+                subtitle: loc.t(
+                    """
+                    Пока режим включён, Mac не засыпает и не теряет интернет — долгая \
+                    задача не оборвётся на середине. Экран при этом гаснет как обычно.
+                    """,
+                    """
+                    While this is on, your Mac won't fall asleep or lose its internet \
+                    connection, so a long task won't be cut off halfway. The screen still \
+                    turns off as usual.
+                    """)
             ),
             script: nil,
             showScript: $showScript
@@ -55,22 +60,17 @@ struct KeepAwakeView: View {
                 }
 
                 VStack(spacing: 5) {
-                    Text(keepAwake.isOn ? "Включено" : "Выключено")
+                    Text(keepAwake.isOn ? loc.t("Включено", "On") : loc.t("Выключено", "Off"))
                         .font(.system(size: 20, weight: .semibold))
                         .tracking(-0.2)
                         .foregroundStyle(keepAwake.isOn ? .white : .primary)
 
-                    if keepAwake.isOn {
-                        TimelineView(.periodic(from: .now, by: 15)) { _ in
-                            Text("режим держится \(keepAwake.uptimeText)")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.85))
-                        }
-                    } else {
-                        Text("нажмите, чтобы Mac перестал засыпать")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(keepAwake.isOn
+                         ? loc.t("нажмите, чтобы Mac снова засыпал", "click to let the Mac sleep again")
+                         : loc.t("нажмите, чтобы Mac перестал засыпать", "click to keep the Mac awake"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(keepAwake.isOn ? AnyShapeStyle(Color.white.opacity(0.85))
+                                                        : AnyShapeStyle(Color.secondary))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -96,36 +96,48 @@ struct KeepAwakeView: View {
     private var infoCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 11) {
-                Text("Что делает режим").font(.system(size: 13, weight: .semibold))
+                Text(loc.t("Что происходит", "What this does"))
+                    .font(.system(size: 13, weight: .semibold))
                 Divider()
 
-                CheckRow(title: "Сон системы по бездействию",
-                         value: keepAwake.isOn ? "заблокирован" : "по настройкам",
-                         kind: keepAwake.isOn ? .ok : .idle,
-                         hint: "штатное утверждение питания IOKit, как у команды caffeinate")
+                CheckRow(title: loc.t("Уход в сон", "Falling asleep"),
+                         value: keepAwake.isOn ? loc.t("запрещён", "blocked")
+                                               : loc.t("как в настройках", "as set in Settings"),
+                         kind: keepAwake.isOn ? .ok : .idle)
 
-                CheckRow(title: "Сетевые соединения",
-                         value: keepAwake.isOn ? "удерживаются" : "по настройкам",
+                CheckRow(title: loc.t("Интернет", "Internet"),
+                         value: keepAwake.isOn ? loc.t("не отключается", "stays connected")
+                                               : loc.t("как в настройках", "as set in Settings"),
                          kind: keepAwake.isOn ? .ok : .idle,
-                         hint: "Wi-Fi и VPN не рвутся при простое")
+                         hint: loc.t("Wi-Fi и VPN не рвутся при простое",
+                                     "Wi-Fi and VPN don't drop while idle"))
 
-                CheckRow(title: "Экран гаснет через",
+                CheckRow(title: loc.t("Экран гаснет через", "The screen turns off after"),
                          value: displaySleepText,
                          kind: .idle,
-                         hint: "не блокируется — подсветка выключается как обычно")
+                         hint: loc.t("не меняется — подсветка выключается как обычно",
+                                     "unchanged — the backlight goes off as usual"))
 
                 Divider()
 
                 HStack(spacing: 10) {
-                    Button("Настройки экрана") { keepAwake.openDisplaySettings() }
+                    Button(loc.t("Настройки экрана", "Screen settings")) {
+                        keepAwake.openDisplaySettings()
+                    }
                     Spacer()
                 }
 
-                Text("""
-                Режим действует, пока приложение запущено. Закроете приложение — Mac \
-                вернётся к обычным настройкам сна. Состояние тумблера запоминается: \
-                при следующем запуске режим включится сам.
-                """)
+                Text(loc.t(
+                    """
+                    Режим работает, пока открыто приложение. Закроете — Mac вернётся \
+                    к обычным настройкам сна. Положение переключателя запоминается: \
+                    при следующем запуске режим включится сам.
+                    """,
+                    """
+                    This works while the app is open. Quit it and your Mac goes back to its \
+                    normal sleep settings. The switch remembers its position: next time you \
+                    open the app it turns itself back on.
+                    """))
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -135,6 +147,6 @@ struct KeepAwakeView: View {
 
     private var displaySleepText: String {
         guard let m = keepAwake.displaySleepMinutes else { return "—" }
-        return m == 0 ? "никогда" : "\(m) мин"
+        return m == 0 ? loc.t("никогда", "never") : loc.t("\(m) мин", "\(m) min")
     }
 }

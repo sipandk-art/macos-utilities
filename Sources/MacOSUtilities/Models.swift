@@ -14,6 +14,10 @@ final class ScriptTool: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var log: [String] = []
 
+    /// Язык, с которым запускаются скрипты: их вывод идёт в журнал и в баннер
+    /// с итогом, значит должен быть на языке интерфейса.
+    var lang: Lang = .ru
+
     // nonisolated: объект создаётся как значение по умолчанию в init разделов,
     // а там ещё нет главного актора. Присваиваются только два let.
     nonisolated init(scriptName: String, scriptTitle: String) {
@@ -29,7 +33,7 @@ final class ScriptTool: ObservableObject {
     func check() async {
         guard !isBusy else { return }
         isChecking = true
-        let out = await ScriptRunner.run(scriptName, arguments: ["check"]) { _ in }
+        let out = await ScriptRunner.run(scriptName, arguments: ["check"] + langArgs) { _ in }
         diagnostics = out
         isChecking = false
     }
@@ -40,7 +44,7 @@ final class ScriptTool: ObservableObject {
         isRunning = true
         log = []
         lastRun = nil
-        let out = await ScriptRunner.run(scriptName, arguments: arguments) { [weak self] line in
+        let out = await ScriptRunner.run(scriptName, arguments: arguments + langArgs) { [weak self] line in
             guard let self, !line.isEmpty else { return }
             self.log.append(line)
         }
@@ -48,6 +52,8 @@ final class ScriptTool: ObservableObject {
         isRunning = false
         await check()      // состояние на карточке пересобирается по факту
     }
+
+    private var langArgs: [String] { ["--lang", lang.rawValue] }
 
     // Значения диагностики, к которым обращаются экраны.
     var macOSVersion: String { diagnostics?["MACOS"] ?? "—" }
@@ -67,13 +73,24 @@ enum Tool: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    @MainActor func title(_ loc: Localization) -> String {
         switch self {
-        case .inputSource: return "Раскладка"
-        case .airdrop:     return "AirDrop"
-        case .keepAwake:   return "Не спать"
+        case .inputSource: return loc.t("Раскладка", "Keyboard")
+        case .airdrop:     return loc.t("AirDrop", "AirDrop")
+        case .keepAwake:   return loc.t("Не спать", "Stay awake")
         }
     }
+
+    /// Строка под названием в боковой панели — чтобы раздел был понятен
+    /// до того, как в него зашли.
+    @MainActor func blurb(_ loc: Localization) -> String {
+        switch self {
+        case .inputSource: return loc.t("Caps Lock переключает язык", "Caps Lock switches language")
+        case .airdrop:     return loc.t("Снять зависший AirDrop", "Unstick AirDrop")
+        case .keepAwake:   return loc.t("Mac не уходит в сон", "Keep the Mac awake")
+        }
+    }
+
     var symbol: String {
         switch self {
         case .inputSource: return "keyboard"
@@ -84,17 +101,8 @@ enum Tool: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .inputSource: return .blue
-        case .airdrop:     return .indigo
+        case .airdrop:     return .teal
         case .keepAwake:   return .green
-        }
-    }
-    /// Короткая строка под названием в боковой панели — чтобы раздел был понятен
-    /// до того, как в него зашли.
-    var blurb: String {
-        switch self {
-        case .inputSource: return "Caps Lock переключает язык"
-        case .airdrop:     return "Снять зависший AirDrop"
-        case .keepAwake:   return "Mac не уходит в сон"
         }
     }
 }

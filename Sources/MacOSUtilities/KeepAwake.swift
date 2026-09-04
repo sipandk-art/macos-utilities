@@ -24,7 +24,6 @@ enum AppInfo {
 final class KeepAwake: ObservableObject {
 
     @Published private(set) var isOn = false
-    @Published private(set) var since: Date?
     @Published private(set) var displaySleepMinutes: Int?
 
     private var systemAssertion: IOPMAssertionID = 0
@@ -67,7 +66,6 @@ final class KeepAwake: ObservableObject {
         systemAssertion = sys
         networkAssertion = netOK ? net : 0
         isOn = true
-        since = Date()
         UserDefaults.standard.set(true, forKey: defaultsKey)
         refreshDisplaySleep()
     }
@@ -76,7 +74,6 @@ final class KeepAwake: ObservableObject {
         if systemAssertion != 0 { IOPMAssertionRelease(systemAssertion); systemAssertion = 0 }
         if networkAssertion != 0 { IOPMAssertionRelease(networkAssertion); networkAssertion = 0 }
         isOn = false
-        since = nil
         UserDefaults.standard.set(false, forKey: defaultsKey)
     }
 
@@ -105,13 +102,5 @@ final class KeepAwake: ObservableObject {
     func openDisplaySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension")!
         NSWorkspace.shared.open(url)
-    }
-
-    var uptimeText: String {
-        guard let since else { return "" }
-        let s = Int(Date().timeIntervalSince(since))
-        if s < 60 { return "\(s) с" }
-        if s < 3600 { return "\(s / 60) мин" }
-        return "\(s / 3600) ч \((s % 3600) / 60) мин"
     }
 }

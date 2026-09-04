@@ -22,6 +22,7 @@ enum Snapshot {
                 .flatMap(Double.init) ?? 668
             let keepAwake = KeepAwake()
             keepAwake.refreshDisplaySleep()
+            let loc = Localization()
             let inputTool = ScriptTool(scriptName: "input-source-fix",
                                        scriptTitle: "input-source-fix.sh")
             let airdropTool = ScriptTool(scriptName: "airdrop-fix",
@@ -32,6 +33,7 @@ enum Snapshot {
             for tool in Tool.allCases {
                 let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
                     .environmentObject(keepAwake)
+                    .environmentObject(loc)
                     .environment(\.snapshotMode, true)
                     .frame(width: width)
                     .fixedSize(horizontal: false, vertical: true)
@@ -58,6 +60,7 @@ enum Snapshot {
         Task { @MainActor in
             let keepAwake = KeepAwake()
             keepAwake.refreshDisplaySleep()
+            let loc = Localization()
 
             let inputTool = ScriptTool(scriptName: "input-source-fix",
                                        scriptTitle: "input-source-fix.sh")
@@ -69,13 +72,15 @@ enum Snapshot {
             for tool in Tool.allCases {
                 let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
                     .environmentObject(keepAwake)
+                    .environmentObject(loc)
                     .environment(\.snapshotMode, true)
                     .frame(width: 660, height: 700)
                 write(page, to: dir.appendingPathComponent("\(tool.rawValue).png"))
             }
             // Второй кадр keep-alive — во включённом состоянии.
             keepAwake.enable()
-            write(KeepAwakeView().environmentObject(keepAwake).environment(\.snapshotMode, true).frame(width: 660, height: 700),
+            write(KeepAwakeView().environmentObject(keepAwake).environmentObject(loc)
+                    .environment(\.snapshotMode, true).frame(width: 660, height: 700),
                   to: dir.appendingPathComponent("keepAwake-on.png"))
             keepAwake.disable()
             NSApp.terminate(nil)

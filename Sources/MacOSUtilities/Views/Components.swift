@@ -68,6 +68,30 @@ struct PageHeader: View {
     }
 }
 
+/// Шапка карточки: название и кнопка повторной проверки. Пока проверка идёт,
+/// вместо кнопки крутится индикатор — нажимать всё равно нечего.
+struct CardHeader: View {
+    let title: String
+    let busy: Bool
+    let hint: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack {
+            Text(title).font(.system(size: 13, weight: .semibold))
+            Spacer()
+            if busy {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(action: action) { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(hint)
+            }
+        }
+    }
+}
+
 // MARK: - Статусы
 
 enum StatusKind {
@@ -176,6 +200,7 @@ struct ResultBanner: View {
 
 struct LogPanel: View {
     let lines: [String]
+    @EnvironmentObject private var loc: Localization
     @State private var expanded = false
 
     var body: some View {
@@ -187,7 +212,7 @@ struct LogPanel: View {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .bold))
                         .rotationEffect(.degrees(expanded ? 90 : 0))
-                    Text("Журнал выполнения")
+                    Text(loc.t("Журнал выполнения", "Activity log"))
                         .font(.system(size: 12, weight: .medium))
                     Text("\(lines.count)")
                         .font(.system(size: 11))
@@ -220,6 +245,7 @@ struct LogPanel: View {
 struct ScriptSheet: View {
     let title: String
     let script: String
+    @EnvironmentObject private var loc: Localization
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
 
@@ -231,7 +257,8 @@ struct ScriptSheet: View {
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 13, weight: .semibold))
-                    Text("Ровно этот код приложение и выполняет — ничего скрытого")
+                    Text(loc.t("Ровно этот код приложение и выполняет — ничего скрытого",
+                               "This is exactly the code the app runs — nothing hidden"))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -244,10 +271,11 @@ struct ScriptSheet: View {
                         withAnimation(.calm) { copied = false }
                     }
                 } label: {
-                    Label(copied ? "Скопировано" : "Копировать",
+                    Label(copied ? loc.t("Скопировано", "Copied")
+                                : loc.t("Копировать", "Copy"),
                           systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
-                Button("Закрыть") { dismiss() }
+                Button(loc.t("Закрыть", "Close")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 16)
@@ -274,6 +302,7 @@ struct ScriptSheet: View {
 /// Кнопка «Поделиться»: кладёт ссылку на репозиторий в буфер обмена
 /// и на пару секунд подтверждает это на себе же.
 struct ShareRepoButton: View {
+    @EnvironmentObject private var loc: Localization
     @State private var copied = false
 
     var body: some View {
@@ -285,7 +314,8 @@ struct ShareRepoButton: View {
                 withAnimation(.calm) { copied = false }
             }
         } label: {
-            Label(copied ? "Ссылка скопирована" : "Поделиться",
+            Label(copied ? loc.t("Ссылка скопирована", "Link copied")
+                        : loc.t("Поделиться", "Share"),
                   systemImage: copied ? "checkmark" : "square.and.arrow.up")
         }
         .help(AppInfo.repositoryURL)

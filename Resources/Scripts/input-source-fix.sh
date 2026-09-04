@@ -1,25 +1,26 @@
 #!/bin/bash
 #
-# input-source-fix.sh — надёжное переключение раскладки клавиатуры по Caps Lock.
+# input-source-fix.sh — переключение языка ввода по клавише Caps Lock.
 #
-#   input-source-fix.sh check     диагностика: версия macOS, права, текущее состояние
-#   input-source-fix.sh apply     применить фикс (с бэкапом прежнего состояния)
-#   input-source-fix.sh revert    откатить всё к состоянию до apply
+#   input-source-fix.sh check     проверка: версия macOS, права, текущее состояние
+#   input-source-fix.sh apply     включить (с сохранением прежних настроек)
+#   input-source-fix.sh revert    вернуть настройки к тому, что было до включения
 #
-# ПРОБЛЕМА. Штатная галка «Использовать Caps Lock для переключения раскладки»
-# (System Settings -> Keyboard -> Input Sources) работает через обработчик,
-# который при быстром наборе теряет нажатия: печатаешь быстро — раскладка
-# не переключилась, половина слова ушла не в тот язык.
+#   --lang ru|en                  язык сообщений (по умолчанию ru)
 #
-# РЕШЕНИЕ. Физический Caps Lock перекладывается на клавишу F18 прямо в HID-слое
-# (hidutil, ядро драйвера клавиатуры), а на F18 вешается системный шорткат
-# «Выбрать предыдущий источник ввода». Этот путь синхронный и не теряет нажатий.
+# ЗАЧЕМ. В macOS есть штатная галка «Использовать Caps Lock для переключения
+# раскладки». Она работает через обработчик, который при быстром наборе теряет
+# нажатия: печатаешь быстро — язык не переключился, половина слова ушла не туда.
+#
+# КАК. Физический Caps Lock перекладывается на клавишу F18 прямо в драйвере
+# клавиатуры (hidutil), а на F18 вешается системный шорткат «Выбрать предыдущий
+# источник ввода». Этот путь синхронный и нажатия не теряет.
 #
 # ЧТО МЕНЯЕТСЯ НА ДИСКЕ (всё — только в домашней папке пользователя):
 #   1. hidutil UserKeyMapping           — ремап Caps Lock -> F18 (живёт до перезагрузки)
 #   2. ~/Library/LaunchAgents/com.user.capslock2f18.plist — повторяет ремап при входе
 #   3. com.apple.symbolichotkeys, ключ 60 — шорткат «предыдущий источник ввода» = F18
-#   4. com.apple.keyboard.modifiermapping.* — ТОЛЬКО если Caps Lock стоит «Нет действия»
+#   4. com.apple.keyboard.modifiermapping.* — ТОЛЬКО если Caps Lock отключён
 #
 # ПРАВА. sudo/root НЕ НУЖЕН: всё перечисленное — пользовательские настройки.
 # Пароль администратора скрипт не спрашивает и спрашивать не будет.
@@ -42,18 +43,101 @@ BACKUP="$BACKUP_DIR/input-source-backup.json"
 LEGACY_BACKUP_DIR="$HOME/Library/Application Support/Toolbelt"   # имя до версии 1.1.0
 ACTIVATE=/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings
 
+UILANG=ru
+
 # Бэкап, снятый прежней версией приложения, переезжает под новое имя —
-# иначе кнопка «Откатить» перестала бы видеть уже сохранённое состояние.
+# иначе кнопка отмены перестала бы видеть уже сохранённое состояние.
 if [ -f "$LEGACY_BACKUP_DIR/input-source-backup.json" ] && [ ! -f "$BACKUP" ]; then
   mkdir -p "$BACKUP_DIR"
   mv "$LEGACY_BACKUP_DIR/input-source-backup.json" "$BACKUP"
   rmdir "$LEGACY_BACKUP_DIR" 2>/dev/null
 fi
 
+# ── сообщения ────────────────────────────────────────────────────────────────
+#
+# Оба языка лежат рядом: так перевод виден вместе с оригиналом и не разъезжается
+# с кодом. `t` отдаёт строку, значения подставляются через printf.
+
+t() {
+  local ru en
+  case "$1" in
+    check_head)     ru="== Проверка системы =="            ; en="== System check ==" ;;
+    apply_head)     ru="== Включаю =="                     ; en="== Turning on ==" ;;
+    revert_head)    ru="== Возвращаю прежние настройки ==" ; en="== Restoring previous settings ==" ;;
+    verify_head)    ru="== Проверка результата =="         ; en="== Verifying ==" ;;
+    macos)          ru="macOS %s"                          ; en="macOS %s" ;;
+    supported)      ru="версия подходит"                   ; en="version is supported" ;;
+    unsupported)    ru="версия не подходит, нужна macOS %s или новее"
+                    en="version is too old, macOS %s or later is required" ;;
+    no_root)        ru="пароль администратора не нужен"    ; en="no administrator password needed" ;;
+    layouts)        ru="языков ввода включено: %s"         ; en="input languages enabled: %s" ;;
+    caps_off)       ru="клавиша Caps Lock отключена в настройках — включу обратно"
+                    en="the Caps Lock key is disabled in Settings — it will be re-enabled" ;;
+    is_on)          ru="сейчас включено"                   ; en="currently on" ;;
+    is_off)         ru="сейчас выключено"                  ; en="currently off" ;;
+    check_done)     ru="Проверка выполнена"                ; en="System check complete" ;;
+    backup_kept)    ru="прежние настройки уже сохранены"   ; en="previous settings are already saved" ;;
+    backup_saved)   ru="прежние настройки сохранены: %s"   ; en="previous settings saved to: %s" ;;
+    remap_done)     ru="Caps Lock теперь работает как переключатель языка"
+                    en="Caps Lock now acts as the language switch" ;;
+    agent_done)     ru="настройка будет восстанавливаться при каждом входе в систему"
+                    en="the setting will be restored at every login" ;;
+    agent_warn)     ru="внимание: автозагрузка не зарегистрировалась, после перезагрузки может слететь"
+                    en="warning: the login item did not register, the setting may not survive a reboot" ;;
+    hotkey_done)    ru="сочетание для смены языка назначено"
+                    en="the language-switch shortcut is assigned" ;;
+    caps_fixed)     ru="клавиша Caps Lock включена обратно (клавиатур: %s)"
+                    en="the Caps Lock key was re-enabled (keyboards: %s)" ;;
+    settings_read)  ru="настройки перечитаны"              ; en="settings reloaded" ;;
+    ok_remap)       ru="переключение работает"             ; en="switching works" ;;
+    bad_remap)      ru="переключение НЕ работает"          ; en="switching does NOT work" ;;
+    ok_hotkey)      ru="сочетание на месте"                ; en="the shortcut is in place" ;;
+    bad_hotkey)     ru="сочетание не записалось"           ; en="the shortcut was not written" ;;
+    ok_agent)       ru="автозагрузка настроена"            ; en="the login item is set up" ;;
+    bad_agent)      ru="автозагрузка не настроена"         ; en="the login item is not set up" ;;
+    one_layout)     ru="включён только один язык ввода — добавьте второй в настройках клавиатуры"
+                    en="only one input language is enabled — add a second one in Keyboard settings" ;;
+    sum_ok)         ru="Caps Lock переключает язык. Настройка переживёт перезагрузку"
+                    en="Caps Lock switches the language. The setting survives a reboot" ;;
+    sum_one_layout) ru="Включено, но язык ввода всего один — переключать нечего"
+                    en="Turned on, but there is only one input language — nothing to switch between" ;;
+    sum_partial)    ru="Получилось не всё — смотрите журнал"
+                    en="Some steps did not apply — see the activity log" ;;
+    sum_unsupported) ru="macOS %s не поддерживается"       ; en="macOS %s is not supported" ;;
+    err_hidutil)    ru="Не удалось изменить настройки клавиатуры"
+                    en="Could not change the keyboard settings" ;;
+    err_plist)      ru="Не удалось создать файл автозагрузки"
+                    en="Could not create the login item file" ;;
+    err_hotkey)     ru="Не удалось назначить сочетание клавиш"
+                    en="Could not assign the keyboard shortcut" ;;
+    no_backup)      ru="Отменять нечего: сохранённых настроек нет"
+                    en="Nothing to undo: no saved settings found" ;;
+    agent_restored) ru="файл автозагрузки возвращён к прежнему виду"
+                    en="the login item file was restored" ;;
+    agent_removed)  ru="файл автозагрузки удалён"          ; en="the login item file was removed" ;;
+    remap_dropped)  ru="Caps Lock снова обычный Caps Lock" ; en="Caps Lock is a plain Caps Lock again" ;;
+    remap_complex)  ru="прежняя раскладка клавиш была нестандартной — снимаю изменения целиком"
+                    en="the previous key mapping was non-standard — removing all changes" ;;
+    hotkey_restored) ru="сочетание для смены языка возвращено к прежнему значению"
+                     en="the language-switch shortcut was restored to its previous value" ;;
+    hotkey_removed) ru="сочетание для смены языка удалено (его не было до включения)"
+                    en="the language-switch shortcut was removed (there was none before)" ;;
+    backup_dropped) ru="сохранённые настройки больше не нужны и удалены"
+                    en="the saved settings are no longer needed and were deleted" ;;
+    sum_reverted)   ru="Всё вернулось к тому, что было до включения"
+                    en="Everything is back to how it was before" ;;
+    *)              ru="$1"                                ; en="$1" ;;
+  esac
+  [ "$UILANG" = en ] && printf '%s' "$en" || printf '%s' "$ru"
+}
+
 # Строки вида @@ключ=значение читает приложение; для человека они безвредны.
 emit() { printf '@@%s=%s\n' "$1" "$2"; }
-step() { printf '  • %s\n' "$1"; }
-fail() { emit RESULT fail; emit SUMMARY "$1"; exit 1; }
+# shellcheck disable=SC2059  # формат приходит из таблицы выше, не извне
+step() { local f; f=$(t "$1"); shift; printf '  • '; printf "$f" "$@"; printf '\n'; }
+head_() { printf '%s\n' "$(t "$1")"; }
+# shellcheck disable=SC2059
+fail() { local f; f=$(t "$1"); shift; emit RESULT fail; emit SUMMARY "$(printf "$f" "$@")"; exit 1; }
 
 # ── чтение состояния ─────────────────────────────────────────────────────────
 
@@ -78,7 +162,7 @@ hotkey_ok() {
     | grep -qx "$F18_KEYCODE"
 }
 
-# Сколько раскладок клавиатуры включено (переключать имеет смысл от двух).
+# Сколько языков ввода включено (переключать имеет смысл от двух).
 layout_count() {
   python3 - <<'PY' 2>/dev/null || echo 0
 import subprocess, plistlib
@@ -93,7 +177,7 @@ print(sum(1 for s in d.get('AppleEnabledInputSources', [])
 PY
 }
 
-# Caps Lock переведён в «Нет действия» в Modifier Keys? Тогда фикс не сработает.
+# Caps Lock переведён в «Нет действия» в настройках клавиатуры? Тогда не сработает.
 capslock_noaction_keys() {
   python3 - <<'PY' 2>/dev/null
 import subprocess, plistlib
@@ -126,27 +210,24 @@ do_check() {
   layouts=$(layout_count)
   noaction=$(capslock_noaction_keys | head -1)
 
-  echo "== Диагностика =="
-  step "macOS $v"
+  head_ check_head
+  step macos "$v"
   emit MACOS "$v"
 
   if [ "$major" -ge "$MIN_MACOS" ]; then
-    step "версия поддерживается (нужна $MIN_MACOS+)"
-    emit SUPPORTED yes
+    step supported; emit SUPPORTED yes
   else
-    step "версия НЕ поддерживается (нужна $MIN_MACOS+)"
-    emit SUPPORTED no
+    step unsupported "$MIN_MACOS"; emit SUPPORTED no
   fi
 
-  step "права администратора не нужны"
+  step no_root
   emit NEEDS_ROOT no
 
-  step "раскладок клавиатуры включено: $layouts"
+  step layouts "$layouts"
   emit LAYOUTS "$layouts"
 
   if [ -n "$noaction" ]; then
-    step "Caps Lock стоит «Нет действия» — фикс это исправит"
-    emit CAPS_NOACTION yes
+    step caps_off; emit CAPS_NOACTION yes
   else
     emit CAPS_NOACTION no
   fi
@@ -155,24 +236,20 @@ do_check() {
   remap_active        || applied=no
   hotkey_ok           || applied=no
   [ -f "$PLIST" ]     || applied=no
-  if [ "$applied" = yes ]; then
-    step "фикс уже применён"
-  else
-    step "фикс не применён"
-  fi
+  [ "$applied" = yes ] && step is_on || step is_off
   emit APPLIED "$applied"
   [ -f "$BACKUP" ] && emit HAS_BACKUP yes || emit HAS_BACKUP no
 
   emit RESULT ok
-  emit SUMMARY "Диагностика выполнена"
+  emit SUMMARY "$(t check_done)"
 }
 
 # ── apply ────────────────────────────────────────────────────────────────────
 
 save_backup() {
-  # Бэкап снимается один раз — при самом первом apply. Повторный apply его
-  # не перезаписывает, иначе откат вернул бы уже изменённое состояние.
-  [ -f "$BACKUP" ] && { step "бэкап уже есть, не трогаю"; return 0; }
+  # Прежние настройки сохраняются один раз — при первом включении. Повторное
+  # включение их не перезаписывает, иначе отмена вернула бы уже изменённое.
+  [ -f "$BACKUP" ] && { step backup_kept; return 0; }
   mkdir -p "$BACKUP_DIR"
   python3 - "$BACKUP" "$PLIST" "$HOTKEY_ID" <<'PY'
 import json, os, subprocess, sys
@@ -191,26 +268,26 @@ data = {
 with open(backup, 'w') as f:
     json.dump(data, f, indent=2)
 PY
-  step "бэкап прежнего состояния: $BACKUP"
+  step backup_saved "$BACKUP"
 }
 
 do_apply() {
   local major; major=$(macos_major)
-  [ "$major" -ge "$MIN_MACOS" ] || fail "macOS $(macos_version) не поддерживается"
+  [ "$major" -ge "$MIN_MACOS" ] || fail sum_unsupported "$(macos_version)"
 
-  echo "== Применяю фикс =="
+  head_ apply_head
   save_backup
 
-  # 1. Ремап на уровне HID: любое событие Caps Lock система видит как F18.
+  # 1. Ремап на уровне драйвера: любое нажатие Caps Lock система видит как F18.
   hidutil property --set \
     "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":$CAPS_HID,\"HIDKeyboardModifierMappingDst\":$F18_HID}]}" \
-    >/dev/null || fail "hidutil не смог применить ремап"
-  step "Caps Lock -> F18 (действует сразу)"
+    >/dev/null || fail err_hidutil
+  step remap_done
 
   # 2. LaunchAgent повторяет тот же ремап при каждом входе в систему,
   #    иначе после перезагрузки Caps Lock снова станет Caps Lock.
   mkdir -p "$(dirname "$PLIST")"
-  cat > "$PLIST" <<EOF
+  cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -228,16 +305,15 @@ do_apply() {
     <true/>
 </dict>
 </plist>
-EOF
-  plutil -lint "$PLIST" >/dev/null || fail "получился битый plist LaunchAgent"
+PLIST_EOF
+  plutil -lint "$PLIST" >/dev/null || fail err_plist
   launchctl bootout "gui/$(id -u)" "$PLIST" >/dev/null 2>&1
-  launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 \
-    || step "внимание: launchctl bootstrap вернул ошибку (ремап работает, но может не пережить перезагрузку)"
-  step "автозагрузка ремапа: $PLIST"
+  launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || step agent_warn
+  step agent_done
 
   # 3. Системный шорткат «Выбрать предыдущий источник ввода» = F18.
   #    65535 — «символа нет», 79 — код F18, 8388608 — флаг Function,
-  #    именно в таком виде System Settings записывает нажатие F18.
+  #    именно в таком виде системные настройки записывают нажатие F18.
   defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add "$HOTKEY_ID" "
     <dict>
       <key>enabled</key><true/>
@@ -251,11 +327,11 @@ EOF
         </array>
         <key>type</key><string>standard</string>
       </dict>
-    </dict>" || fail "не удалось записать системный шорткат"
-  step "шорткат «предыдущий источник ввода» = F18"
+    </dict>" || fail err_hotkey
+  step hotkey_done
 
   # 4. Хвост от Karabiner и подобных: Caps Lock переведён в «Нет действия».
-  #    В этом состоянии клавиша не отдаёт события вообще и фикс не работает.
+  #    В этом состоянии клавиша не отдаёт событий вообще и ничего не сработает.
   local fixed=0
   while IFS= read -r key; do
     [ -z "$key" ] && continue
@@ -268,73 +344,72 @@ EOF
       </array>"
     fixed=$((fixed + 1))
   done < <(capslock_noaction_keys)
-  [ "$fixed" -gt 0 ] && step "Caps Lock возвращён из «Нет действия» ($fixed клавиатур)"
+  [ "$fixed" -gt 0 ] && step caps_fixed "$fixed"
 
-  # 5. Просим систему перечитать настройки, чтобы шорткат заработал без релогина.
+  # 5. Просим систему перечитать настройки, чтобы всё заработало без релогина.
   [ -x "$ACTIVATE" ] && "$ACTIVATE" -u >/dev/null 2>&1
-  step "настройки перечитаны"
+  step settings_read
 
-  # 6. Проверяем результат по факту, а не по коду возврата команд.
+  # 6. Проверяем результат по факту, а не по кодам возврата команд.
   echo
-  echo "== Проверка =="
+  head_ verify_head
   local ok=1
-  if remap_active; then step "ремап активен"; else step "ремап НЕ активен"; ok=0; fi
-  if hotkey_ok;    then step "шорткат на месте"; else step "шорткат НЕ записался"; ok=0; fi
-  if launchagent_loaded; then step "агент автозагрузки зарегистрирован"
-  else step "агент автозагрузки не зарегистрирован"; fi
+  remap_active && step ok_remap || { step bad_remap; ok=0; }
+  hotkey_ok    && step ok_hotkey || { step bad_hotkey; ok=0; }
+  launchagent_loaded && step ok_agent || step bad_agent
 
   local layouts; layouts=$(layout_count)
   emit LAYOUTS "$layouts"
-  if [ "$layouts" -lt 2 ]; then
-    step "включена всего $layouts раскладка — добавьте вторую в настройках клавиатуры"
-  fi
+  [ "$layouts" -lt 2 ] && step one_layout
 
   emit APPLIED yes
   if [ "$ok" -eq 1 ]; then
     emit RESULT ok
     if [ "$layouts" -lt 2 ]; then
-      emit SUMMARY "Фикс применён, но включена только одна раскладка — переключать нечего"
+      emit SUMMARY "$(t sum_one_layout)"
     else
-      emit SUMMARY "Caps Lock переключает раскладку. Изменения переживут перезагрузку"
+      emit SUMMARY "$(t sum_ok)"
     fi
   else
-    fail "Часть изменений не применилась — смотрите журнал"
+    fail sum_partial
   fi
 }
 
 # ── revert ───────────────────────────────────────────────────────────────────
 
 do_revert() {
-  echo "== Откат =="
-  [ -f "$BACKUP" ] || fail "Бэкап не найден — откатывать нечего"
+  head_ revert_head
+  [ -f "$BACKUP" ] || fail no_backup
 
-  # Возврат агента автозагрузки в исходное состояние.
+  # Возврат автозагрузки в исходное состояние.
   launchctl bootout "gui/$(id -u)" "$PLIST" >/dev/null 2>&1
-  python3 - "$BACKUP" "$PLIST" <<'PY'
+  local had_agent
+  had_agent=$(python3 - "$BACKUP" "$PLIST" <<'PY'
 import json, os, sys
 backup, plist = sys.argv[1], sys.argv[2]
 d = json.load(open(backup))
 if d.get('launchagent_existed') and d.get('launchagent_body'):
     open(plist, 'w').write(d['launchagent_body'])
-    print('  • LaunchAgent возвращён к прежнему содержимому')
+    print('restored')
 elif os.path.exists(plist):
     os.remove(plist)
-    print('  • LaunchAgent удалён')
+    print('removed')
 PY
+)
+  [ "$had_agent" = restored ] && step agent_restored
+  [ "$had_agent" = removed ]  && step agent_removed
   [ -f "$PLIST" ] && launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1
 
-  # Возврат ремапа HID. Пустой бэкап = ремапа не было, ставим пустой список.
+  # Возврат ремапа. Пустое сохранённое значение = ремапа не было.
   local had_mapping
   had_mapping=$(python3 -c "
-import json,sys
+import json
 d=json.load(open('$BACKUP'))
 m=(d.get('user_key_mapping') or '').strip()
 print('yes' if m and m != '(null)' and 'HIDKeyboardModifierMappingSrc' in m else 'no')")
-  if [ "$had_mapping" = yes ]; then
-    step "прежний ремап клавиш восстановить автоматически нельзя — снимаю ремап"
-  fi
+  [ "$had_mapping" = yes ] && step remap_complex
   hidutil property --set '{"UserKeyMapping":[]}' >/dev/null
-  step "Caps Lock снова обычный Caps Lock"
+  step remap_dropped
 
   # Возврат системного шортката.
   #
@@ -342,6 +417,7 @@ print('yes' if m and m != '(null)' and 'HIDKeyboardModifierMappingSrc' in m else
   # через демон настроек и сразу перезаписывает ключ целиком, а вот удалить
   # вложенный ключ он не умеет — там нужен PlistBuddy, который правит файл
   # мимо кэша демона, поэтому кэш после него приходится сбрасывать.
+  local hotkey_xml
   hotkey_xml=$(python3 -c "
 import json
 d=json.load(open('$BACKUP'))
@@ -349,26 +425,37 @@ print(d.get('hotkey_xml') or '')")
 
   if [ -n "$hotkey_xml" ]; then
     defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add "$HOTKEY_ID" "$hotkey_xml"
-    step "шорткат «предыдущий источник ввода» возвращён к прежнему значению"
+    step hotkey_restored
   else
     /usr/libexec/PlistBuddy -c "Delete :AppleSymbolicHotKeys:$HOTKEY_ID" \
       "$HOME/Library/Preferences/com.apple.symbolichotkeys.plist" >/dev/null 2>&1
     killall cfprefsd 2>/dev/null
-    step "шорткат «предыдущий источник ввода» удалён (его не было до фикса)"
+    step hotkey_removed
   fi
   [ -x "$ACTIVATE" ] && "$ACTIVATE" -u >/dev/null 2>&1
 
   rm -f "$BACKUP"
-  step "бэкап удалён"
+  step backup_dropped
 
   emit APPLIED no
   emit RESULT ok
-  emit SUMMARY "Всё возвращено к состоянию до фикса"
+  emit SUMMARY "$(t sum_reverted)"
 }
 
-case "${1:-check}" in
+# ── разбор аргументов ────────────────────────────────────────────────────────
+
+CMD="${1:-check}"; shift 2>/dev/null || true
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --lang) UILANG="${2:-ru}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ "$UILANG" = en ] || UILANG=ru
+
+case "$CMD" in
   check)  do_check  ;;
   apply)  do_apply  ;;
   revert) do_revert ;;
-  *) echo "Использование: $(basename "$0") {check|apply|revert}"; exit 2 ;;
+  *) echo "usage: $(basename "$0") {check|apply|revert} [--lang ru|en]"; exit 2 ;;
 esac

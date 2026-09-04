@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct InputSourceView: View {
+    @EnvironmentObject private var loc: Localization
     @StateObject private var tool: ScriptTool
 
     init(tool: ScriptTool = ScriptTool(scriptName: "input-source-fix",
@@ -21,13 +22,18 @@ struct InputSourceView: View {
             header: PageHeader(
                 symbol: Tool.inputSource.symbol,
                 tint: Tool.inputSource.tint,
-                title: "Переключение раскладки",
-                subtitle: """
-                Штатная галка «Caps Lock переключает раскладку» при быстром наборе \
-                теряет нажатия. Здесь Caps Lock перекладывается на F18 в драйвере \
-                клавиатуры, а на F18 вешается системный шорткат смены языка — этот \
-                путь не пропускает нажатия и переживает перезагрузку.
-                """
+                title: loc.t("Переключение раскладки", "Switching the keyboard layout"),
+                subtitle: loc.t(
+                    """
+                    Caps Lock начнёт переключать язык ввода. Встроенная настройка macOS \
+                    делает то же самое, но при быстром наборе иногда пропускает нажатия — \
+                    здесь этого не происходит.
+                    """,
+                    """
+                    Caps Lock starts switching the input language. The built-in macOS \
+                    option does the same but drops keystrokes when you type fast — \
+                    this one doesn't.
+                    """)
             ),
             script: (tool.scriptTitle, tool.source),
             showScript: $showScript
@@ -37,7 +43,8 @@ struct InputSourceView: View {
             if let run = tool.lastRun {
                 ResultBanner(
                     kind: tool.resultKind,
-                    title: tool.resultKind == .ok ? "Готово" : "Не выполнено",
+                    title: tool.resultKind == .ok ? loc.t("Готово", "Done")
+                                                  : loc.t("Не выполнено", "Failed"),
                     detail: run.summary
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -48,19 +55,24 @@ struct InputSourceView: View {
         }
         .animation(.calm, value: tool.lastRun?.summary)
         .animation(.calm, value: tool.isRunning)
-        .task { if !tool.checked { await tool.check() } }
+        .task { tool.lang = loc.lang; if !tool.checked { await tool.check() } }
+        .onChange(of: loc.lang) { newValue in
+            tool.lang = newValue
+            Task { await tool.check() }
+        }
         .confirmationDialog(
-            "Откатить изменения?",
+            loc.t("Отменить изменения?", "Undo the changes?"),
             isPresented: $confirmRevert,
             titleVisibility: .visible
         ) {
-            Button("Откатить", role: .destructive) { Task { await tool.run(["revert"]) } }
-            Button("Отмена", role: .cancel) { }
+            Button(loc.t("Отменить изменения", "Undo"), role: .destructive) {
+                Task { await tool.run(["revert"]) }
+            }
+            Button(loc.t("Отмена", "Cancel"), role: .cancel) { }
         } message: {
-            Text("""
-            Caps Lock снова станет обычным Caps Lock, автозагрузка ремапа удалится, \
-            шорткат смены языка вернётся к значению, которое было до применения фикса.
-            """)
+            Text(loc.t(
+                "Caps Lock снова станет обычным Caps Lock, а настройки клавиатуры вернутся к тому, что было до применения.",
+                "Caps Lock goes back to being Caps Lock, and your keyboard settings return to how they were before."))
         }
     }
 
@@ -69,47 +81,46 @@ struct InputSourceView: View {
     private var diagnosticsCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 11) {
-                HStack {
-                    Text("Проверка системы").font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    if tool.isChecking {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Button {
-                            Task { await tool.check() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Проверить заново")
-                    }
+                CardHeader(title: loc.t("Проверка системы", "System check"),
+                           busy: tool.isChecking,
+                           hint: loc.t("Проверить заново", "Check again")) {
+                    Task { await tool.check() }
                 }
 
                 Divider()
 
                 if !tool.checked {
-                    BusyLabel(text: "Проверяю систему…")
+                    BusyLabel(text: loc.t("Проверяю систему…", "Checking…"))
                 } else {
-                CheckRow(title: "Версия macOS", value: tool.macOSVersion,
-                         kind: tool.isSupported ? .ok : .fail,
-                         hint: tool.isSupported ? "фикс поддерживается" : "нужна macOS 11 или новее")
+                    CheckRow(title: loc.t("Версия macOS", "macOS version"),
+                             value: tool.macOSVersion,
+                             kind: tool.isSupported ? .ok : .fail,
+                             hint: tool.isSupported ? loc.t("подходит", "supported")
+                                                    : loc.t("нужна macOS 11 или новее", "macOS 11 or later required"))
 
-                CheckRow(title: "Права администратора", value: tool.needsRoot ? "нужны" : "не нужны",
-                         kind: .ok,
-                         hint: "меняются только настройки текущего пользователя")
+                    CheckRow(title: loc.t("Пароль администратора", "Administrator password"),
+                             value: loc.t("не нужен", "not needed"),
+                             kind: .ok,
+                             hint: loc.t("меняются только ваши настройки",
+                                         "only your own settings are changed"))
 
-                CheckRow(title: "Раскладок включено", value: "\(layouts)",
-                         kind: layouts >= 2 ? .ok : .warn,
-                         hint: layouts >= 2 ? nil : "добавьте вторую раскладку, иначе переключать нечего")
+                    CheckRow(title: loc.t("Языков ввода включено", "Input languages enabled"),
+                             value: "\(layouts)",
+                             kind: layouts >= 2 ? .ok : .warn,
+                             hint: layouts >= 2 ? nil
+                                   : loc.t("добавьте второй язык, иначе переключать нечего",
+                                           "add a second language, otherwise there is nothing to switch"))
 
-                if d?.flag("CAPS_NOACTION") == true {
-                    CheckRow(title: "Caps Lock в «Modifier Keys»", value: "Нет действия",
-                             kind: .warn, hint: "фикс вернёт клавише действие по умолчанию")
-                }
+                    if d?.flag("CAPS_NOACTION") == true {
+                        CheckRow(title: loc.t("Клавиша Caps Lock", "The Caps Lock key"),
+                                 value: loc.t("отключена", "disabled"),
+                                 kind: .warn,
+                                 hint: loc.t("будет включена обратно", "will be re-enabled"))
+                    }
 
-                CheckRow(title: "Состояние фикса", value: applied ? "применён" : "не применён",
-                         kind: applied ? .ok : .idle)
+                    CheckRow(title: loc.t("Сейчас", "Right now"),
+                             value: applied ? loc.t("включено", "on") : loc.t("выключено", "off"),
+                             kind: applied ? .ok : .idle)
                 }
             }
         }
@@ -120,11 +131,13 @@ struct InputSourceView: View {
     private var actionsCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 13) {
-                Text("Действия").font(.system(size: 13, weight: .semibold))
+                Text(loc.t("Действия", "Actions")).font(.system(size: 13, weight: .semibold))
 
                 Text(applied
-                     ? "Фикс уже стоит. Повторное применение безопасно — оно просто перезапишет настройки."
-                     : "Приложение переложит Caps Lock на F18, поставит автозагрузку ремапа и назначит системный шорткат смены языка.")
+                     ? loc.t("Уже включено. Нажать ещё раз безопасно — настройки просто запишутся заново.",
+                             "Already on. Pressing again is safe — the settings are simply written once more.")
+                     : loc.t("Настройки клавиатуры изменятся так, чтобы Caps Lock переключал язык. Это переживёт перезагрузку.",
+                             "Your keyboard settings change so that Caps Lock switches the language. This survives a reboot."))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -133,24 +146,25 @@ struct InputSourceView: View {
                     Button {
                         Task { await tool.run(["apply"]) }
                     } label: {
-                        Text(applied ? "Применить заново" : "Применить")
+                        Text(applied ? loc.t("Включить заново", "Turn on again")
+                                     : loc.t("Включить", "Turn on"))
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(!tool.isSupported || tool.isBusy)
 
-                    Button("Откатить") { confirmRevert = true }
+                    Button(loc.t("Отменить изменения", "Undo")) { confirmRevert = true }
                         .controlSize(.large)
                         .disabled(!hasBackup || tool.isBusy)
                         .help(hasBackup
-                              ? "Вернуть состояние, которое было до применения"
-                              : "Откатывать нечего: фикс через это приложение не применялся")
+                              ? loc.t("Вернуть настройки к тому, что было до применения",
+                                      "Restore the settings to how they were before")
+                              : loc.t("Отменять нечего: через это приложение ничего не менялось",
+                                      "Nothing to undo: this app has not changed anything yet"))
                 }
 
-                if tool.isRunning {
-                    BusyLabel(text: "Выполняю…")
-                }
+                if tool.isRunning { BusyLabel(text: loc.t("Выполняю…", "Working…")) }
             }
         }
     }
@@ -164,6 +178,7 @@ struct ToolPage<Content: View>: View {
     @Binding var showScript: Bool
     @ViewBuilder var content: Content
 
+    @EnvironmentObject private var loc: Localization
     @Environment(\.snapshotMode) private var snapshotMode
 
     var body: some View {
@@ -184,9 +199,11 @@ struct ToolPage<Content: View>: View {
                     Button {
                         showScript = true
                     } label: {
-                        Label("Показать весь скрипт", systemImage: "curlybraces")
+                        Label(loc.t("Показать весь скрипт", "Show the full script"),
+                              systemImage: "curlybraces")
                     }
-                    .help("Открыть исходный код с комментариями")
+                    .help(loc.t("Открыть исходный код с комментариями",
+                                "Open the source code with comments"))
                 }
                 Spacer()
                 ShareRepoButton()
@@ -198,6 +215,7 @@ struct ToolPage<Content: View>: View {
         .sheet(isPresented: $showScript) {
             if let script {
                 ScriptSheet(title: script.title, script: script.source)
+                    .environmentObject(loc)
             }
         }
     }

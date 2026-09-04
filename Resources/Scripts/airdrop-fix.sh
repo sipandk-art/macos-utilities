@@ -1,55 +1,122 @@
 #!/bin/bash
 #
-# airdrop-fix.sh — снять зависший AirDrop без перезагрузки Mac.
+# airdrop-fix.sh — снять зависшее окно AirDrop без перезагрузки Mac.
 #
-#   airdrop-fix.sh check              диагностика: версия macOS, права, что найдено
-#   airdrop-fix.sh list               только показать процессы, ничего не трогать
-#   airdrop-fix.sh fix [флаги]        убить зависшие + перезапустить службу AirDrop
+#   airdrop-fix.sh check              проверка: версия macOS, права, что нашлось
+#   airdrop-fix.sh list               только показать найденное, ничего не трогать
+#   airdrop-fix.sh fix [флаги]        закрыть зависшее и перезапустить AirDrop
 #   airdrop-fix.sh selftest           самопроверка разбора возраста процессов
 #
-#   флаги для fix:
-#     --age N     зависшим считать то, что живёт дольше N секунд (по умолчанию 120)
-#     --age 0     убить вообще все хелперы AirDrop, даже только что открытые
-#     --finder    вдобавок перезапустить Finder
-#     --awdl      вдобавок передёрнуть Wi-Fi-интерфейс awdl0 (спросит пароль админа)
+#   флаги:
+#     --finder      вдобавок перезапустить Finder
+#     --wifi        вдобавок перезапустить Wi-Fi-интерфейс awdl0 (спросит пароль)
+#     --age N       считать зависшим то, что живёт дольше N секунд (по умолчанию 300)
+#     --lang ru|en  язык сообщений (по умолчанию ru)
 #
-# ПРОБЛЕМА. «Поделиться -> AirDrop» из Finder открывает шит, который рисует не сам
-# Finder, а два его расширения: ShareSheetUI.appex и AirDrop.appex. Иногда шит
-# закрывают, а расширения не выходят — процессы висят в системе неделями, держат
-# открытым отправляемый файл и время от времени всплывают поверх других окон.
+# ЗАЧЕМ. Окно «Поделиться -> AirDrop» рисует не сам Finder, а два его расширения:
+# ShareSheetUI.appex и AirDrop.appex. Иногда окно закрывают, а расширения
+# не выходят — процессы висят в системе неделями, держат отправляемый файл
+# и время от времени всплывают поверх других окон.
 #
-# РЕШЕНИЕ. Найти эти процессы по пути к бандлу расширения, отсеять свежие (вдруг
-# пользователь прямо сейчас что-то отправляет), убить старые и перезапустить
-# sharingd — демон, который и есть служба AirDrop. launchd поднимет его сам.
+# КАК. Найти эти процессы по пути к бандлу расширения, отсеять свежие (вдруг
+# пользователь прямо сейчас что-то отправляет), закрыть старые и перезапустить
+# sharingd — служебную программу, которая и есть AirDrop. Система поднимет её сама.
 #
-# ПРАВА. sudo/root НЕ НУЖЕН для основного сценария: убиваем собственные процессы
-# пользователя, sharingd перезапускается через killall в своей же сессии.
-# Пароль администратора нужен ТОЛЬКО для флага --awdl (ifconfig трогает интерфейс).
+# ПРАВА. sudo/root НЕ НУЖЕН для основного сценария: закрываются собственные
+# процессы пользователя. Пароль администратора нужен ТОЛЬКО для флага --wifi.
 
 set -u
 
-MIN_AGE=120
+MIN_AGE=300            # пять минут: столько шит AirDrop живым уже не бывает
 RESTART_FINDER=0
-BOUNCE_AWDL=0
+RESTART_WIFI=0
 MIN_MACOS=11
+UILANG=ru
 
 # Пути к бандлам расширений — по ним процессы и опознаются.
 PATTERN='AirDrop\.appex/Contents/MacOS/AirDrop|ShareSheetUI\.appex/Contents/MacOS/ShareSheetUI'
 
+# ── сообщения ────────────────────────────────────────────────────────────────
+#
+# Оба языка лежат рядом: так перевод виден вместе с оригиналом и не разъезжается
+# с кодом. `t` отдаёт строку, значения подставляются через printf.
+
+t() {
+  local ru en
+  case "$1" in
+    check_head)    ru="== Проверка системы =="     ; en="== System check ==" ;;
+    procs_head)    ru="== Окна AirDrop (зависшим считается то, что живёт дольше %s мин) =="
+                   en="== AirDrop windows (stuck means alive longer than %s min) ==" ;;
+    kill_head)     ru="== Закрываю зависшее:%s ==" ; en="== Closing what is stuck:%s ==" ;;
+    restart_head)  ru="== Перезапускаю AirDrop ==" ; en="== Restarting AirDrop ==" ;;
+    finder_head)   ru="== Перезапускаю Finder ==" ; en="== Restarting Finder ==" ;;
+    wifi_head)     ru="== Перезапускаю Wi-Fi для AirDrop (нужен пароль администратора) =="
+                   en="== Restarting Wi-Fi for AirDrop (administrator password required) ==" ;;
+    state_head)    ru="== Состояние =="            ; en="== Status ==" ;;
+    macos)         ru="macOS %s"                   ; en="macOS %s" ;;
+    supported)     ru="версия подходит"            ; en="version is supported" ;;
+    unsupported)   ru="версия не подходит, нужна macOS %s или новее"
+                   en="version is too old, macOS %s or later is required" ;;
+    no_root)       ru="пароль администратора не нужен (нужен только для перезапуска Wi-Fi)"
+                   en="no administrator password needed (only for restarting Wi-Fi)" ;;
+    service_up)    ru="служба AirDrop работает"    ; en="the AirDrop service is running" ;;
+    service_down)  ru="служба AirDrop не запущена" ; en="the AirDrop service is not running" ;;
+    stuck)         ru="ЗАВИСЛО"                    ; en="STUCK" ;;
+    fine)          ru="норма"                      ; en="ok" ;;
+    stuck_file)    ru="застрял файл: %s"           ; en="stuck file: %s" ;;
+    nothing)       ru="ничего не найдено, чисто"   ; en="nothing found, all clear" ;;
+    look_only)     ru="режим просмотра — ничего не тронуто"
+                   en="look-only mode — nothing was touched" ;;
+    force)         ru="не отвечают, закрываю принудительно:%s"
+                   en="not responding, force-closing:%s" ;;
+    closed)        ru="закрыто окон: %s"           ; en="windows closed: %s" ;;
+    service_back)  ru="служба AirDrop перезапущена" ; en="the AirDrop service restarted" ;;
+    service_fail)  ru="ВНИМАНИЕ: служба AirDrop не перезапустилась"
+                   en="WARNING: the AirDrop service did not restart" ;;
+    finder_ok)     ru="Finder перезапущен"         ; en="Finder restarted" ;;
+    finder_absent) ru="Finder не был запущен"      ; en="Finder was not running" ;;
+    wifi_ok)       ru="Wi-Fi для AirDrop перезапущен" ; en="Wi-Fi for AirDrop restarted" ;;
+    wifi_fail)     ru="не получилось: ввод пароля отменён или нет прав"
+                   en="did not work: the password prompt was cancelled or permission denied" ;;
+    visible_to)    ru="AirDrop видят: %s"          ; en="AirDrop is visible to: %s" ;;
+    wifi_state)    ru="Wi-Fi для AirDrop: %s"      ; en="Wi-Fi for AirDrop: %s" ;;
+    wifi_on)       ru="работает"                   ; en="working" ;;
+    wifi_off)      ru="не поднят"                  ; en="down" ;;
+    finally)       ru="Готово. Откройте Finder -> AirDrop (Shift-Cmd-R) и проверьте."
+                   en="Done. Open Finder -> AirDrop (Shift-Cmd-R) and check." ;;
+    check_done)    ru="Проверка выполнена"         ; en="System check complete" ;;
+    sum_found)     ru="Найдены зависшие окна AirDrop" ; en="Found stuck AirDrop windows" ;;
+    sum_clean)     ru="Зависших окон AirDrop нет"  ; en="No stuck AirDrop windows" ;;
+    sum_fixed)     ru="Закрыто зависших окон: %s, служба AirDrop перезапущена"
+                   en="Stuck windows closed: %s, the AirDrop service restarted" ;;
+    sum_nothing)   ru="Зависших окон не было, служба AirDrop перезапущена"
+                   en="Nothing was stuck, the AirDrop service restarted" ;;
+    sum_unsupported) ru="macOS %s не поддерживается" ; en="macOS %s is not supported" ;;
+    not_set)       ru="(не задано)"                ; en="(not set)" ;;
+    *)             ru="$1"                         ; en="$1" ;;
+  esac
+  [ "$UILANG" = en ] && printf '%s' "$en" || printf '%s' "$ru"
+}
+
 emit() { printf '@@%s=%s\n' "$1" "$2"; }
-step() { printf '  • %s\n' "$1"; }
+# shellcheck disable=SC2059  # формат приходит из таблицы выше, не извне
+step() { local f; f=$(t "$1"); shift; printf '  • '; printf "$f" "$@"; printf '\n'; }
+# shellcheck disable=SC2059
+head_() { local f; f=$(t "$1"); shift; printf "$f" "$@"; printf '\n'; }
 
 # ── разбор аргументов ────────────────────────────────────────────────────────
 
 CMD="${1:-check}"; shift 2>/dev/null || true
 while [ $# -gt 0 ]; do
   case "$1" in
-    --age)    MIN_AGE="${2:-120}"; shift 2 ;;
+    --age)    MIN_AGE="${2:-300}"; shift 2 ;;
     --finder) RESTART_FINDER=1; shift ;;
-    --awdl)   BOUNCE_AWDL=1; shift ;;
+    --wifi)   RESTART_WIFI=1; shift ;;
+    --lang)   UILANG="${2:-ru}"; shift 2 ;;
     *) shift ;;
   esac
 done
+[ "$UILANG" = en ] || UILANG=ru
 
 # ── поиск процессов ──────────────────────────────────────────────────────────
 
@@ -82,10 +149,10 @@ scan_stdin() {
 
 human() {
   s=$1
-  if   [ "$s" -lt 60 ];    then echo "${s}с"
-  elif [ "$s" -lt 3600 ];  then echo "$((s / 60))м"
-  elif [ "$s" -lt 86400 ]; then echo "$((s / 3600))ч$(((s % 3600) / 60))м"
-  else                          echo "$((s / 86400))д$(((s % 86400) / 3600))ч"
+  if   [ "$s" -lt 60 ];    then echo "${s}s"
+  elif [ "$s" -lt 3600 ];  then echo "$((s / 60))m"
+  elif [ "$s" -lt 86400 ]; then echo "$((s / 3600))h$(((s % 3600) / 60))m"
+  else                          echo "$((s / 86400))d$(((s % 86400) / 3600))h"
   fi
 }
 
@@ -102,34 +169,34 @@ do_selftest() {
       $1==333 && $2==7830    { ok++; next }
       $1==444 && $2==1372816 { ok++; next }
       { bad++ }
-      END { if (ok==4 && bad==0 && NR==4) { print "PASS: разбор возраста и фильтр ок"; exit 0 }
+      END { if (ok==4 && bad==0 && NR==4) { print "PASS"; exit 0 }
             else { print "FAIL ok=" ok+0 " bad=" bad+0 " NR=" NR; exit 1 } }'
 }
 
-# Печатает найденные процессы, возвращает список зависших через глобальную STALE.
+# Печатает найденное, список зависших отдаёт через глобальную STALE.
 STALE=""
 report_procs() {
-  local found=0 stale_n=0
+  local found=0 stale_n=0 mark f
   STALE=""
-  echo "== Хелперы AirDrop (порог зависания ${MIN_AGE}с) =="
+  head_ procs_head "$((MIN_AGE / 60))"
   while IFS="$(printf '\t')" read -r pid age name; do
     [ -z "$pid" ] && continue
     found=$((found + 1))
     if [ "$age" -ge "$MIN_AGE" ]; then
-      mark="ЗАВИС"; STALE="$STALE $pid"; stale_n=$((stale_n + 1))
+      mark=$(t stuck); STALE="$STALE $pid"; stale_n=$((stale_n + 1))
     else
-      mark="ok"
+      mark=$(t fine)
     fi
     printf '  %-7s %-8s %-14s %s\n' "$pid" "$(human "$age")" "$name" "$mark"
     # Какой пользовательский файл держит процесс — обычно это застрявшая отправка.
     # cwd и rtd исключены: это рабочий и корневой каталоги, а не отправляемый файл.
     # А вот txt оставлен — застрявший файл процесс держит именно так, отображённым
-    # в память (проверено на реально зависшем хелпере).
+    # в память (проверено на реально зависшем окне).
     f=$(lsof -w -p "$pid" -a -d '^cwd,^rtd' -Fn 2>/dev/null \
         | grep '^n/Users/' | grep -v '/Library/' | head -1 | cut -c2-)
-    [ -n "$f" ] && printf '          застрял файл: %s\n' "$f"
+    [ -n "$f" ] && step stuck_file "$f"
   done < <(scan)
-  [ "$found" -eq 0 ] && echo "  процессов нет, чисто"
+  [ "$found" -eq 0 ] && step nothing
   emit FOUND "$found"
   emit STALE "$stale_n"
 }
@@ -139,52 +206,54 @@ report_procs() {
 do_check() {
   local v major
   v=$(sw_vers -productVersion); major=$(echo "$v" | cut -d. -f1)
-  echo "== Диагностика =="
-  step "macOS $v"
+  head_ check_head
+  step macos "$v"
   emit MACOS "$v"
   if [ "$major" -ge "$MIN_MACOS" ]; then
-    step "версия поддерживается (нужна $MIN_MACOS+)"; emit SUPPORTED yes
+    step supported; emit SUPPORTED yes
   else
-    step "версия НЕ поддерживается (нужна $MIN_MACOS+)"; emit SUPPORTED no
+    step unsupported "$MIN_MACOS"; emit SUPPORTED no
   fi
-  step "права администратора не нужны (нужны только для перезапуска awdl0)"
+  step no_root
   emit NEEDS_ROOT no
   if pgrep -x sharingd >/dev/null; then
-    step "служба sharingd работает (PID $(pgrep -x sharingd))"; emit SHARINGD up
+    step service_up; emit SHARINGD up
   else
-    step "служба sharingd не запущена"; emit SHARINGD down
+    step service_down; emit SHARINGD down
   fi
   echo
   report_procs
   emit RESULT ok
-  emit SUMMARY "Диагностика выполнена"
+  emit SUMMARY "$(t check_done)"
 }
 
 do_list() {
   report_procs
   echo
-  echo "режим просмотра — ничего не тронуто"
+  step look_only
   emit RESULT ok
   if [ -n "${STALE// /}" ]; then
-    emit SUMMARY "Найдены зависшие процессы AirDrop"
+    emit SUMMARY "$(t sum_found)"
   else
-    emit SUMMARY "Зависших процессов AirDrop нет"
+    emit SUMMARY "$(t sum_clean)"
   fi
 }
 
 do_fix() {
-  local v major killed=0
+  local v major killed=0 survivors old new i
   v=$(sw_vers -productVersion); major=$(echo "$v" | cut -d. -f1)
   if [ "$major" -lt "$MIN_MACOS" ]; then
-    emit RESULT fail; emit SUMMARY "macOS $v не поддерживается"; exit 1
+    emit RESULT fail
+    emit SUMMARY "$(printf "$(t sum_unsupported)" "$v")"
+    exit 1
   fi
 
   report_procs
 
-  # 1. Сначала вежливый kill, через 2 секунды выжившим — kill -9.
+  # 1. Сначала вежливое закрытие, через две секунды выжившим — принудительное.
   if [ -n "${STALE// /}" ]; then
     echo
-    echo "== Снимаю зависшие:$STALE =="
+    head_ kill_head "$STALE"
     kill $STALE 2>/dev/null
     sleep 2
     survivors=""
@@ -192,18 +261,18 @@ do_fix() {
       kill -0 "$p" 2>/dev/null && survivors="$survivors $p"
     done
     if [ -n "${survivors// /}" ]; then
-      step "не отвечают, добиваю -9:$survivors"
+      step force "$survivors"
       kill -9 $survivors 2>/dev/null
     fi
     for p in $STALE; do kill -0 "$p" 2>/dev/null || killed=$((killed + 1)); done
-    step "снято процессов: $killed"
+    step closed "$killed"
   fi
   emit KILLED "$killed"
 
-  # 2. Перезапуск самой службы AirDrop. launchd поднимает sharingd автоматически,
-  #    поэтому достаточно его убить и дождаться нового PID.
+  # 2. Перезапуск самой службы AirDrop. Система поднимает sharingd автоматически,
+  #    поэтому достаточно его закрыть и дождаться нового номера процесса.
   echo
-  echo "== Перезапуск службы AirDrop (sharingd) =="
+  head_ restart_head
   old=$(pgrep -x sharingd)
   killall sharingd 2>/dev/null
   new=""; i=0
@@ -214,48 +283,48 @@ do_fix() {
     i=$((i + 1))
   done
   if [ -n "$new" ] && [ "$new" != "$old" ]; then
-    step "sharingd поднялся: PID ${old:-нет} -> $new"
-    emit SHARINGD restarted
+    step service_back; emit SHARINGD restarted
   else
-    step "ВНИМАНИЕ: sharingd не перезапустился (было ${old:-нет}, стало ${new:-нет})"
-    emit SHARINGD failed
+    step service_fail; emit SHARINGD failed
   fi
 
   # 3. Finder — по запросу. Окна Finder закроются, рабочий стол моргнёт.
   if [ "$RESTART_FINDER" -eq 1 ]; then
     echo
-    echo "== Перезапуск Finder =="
-    if killall Finder 2>/dev/null; then step "Finder перезапущен"; emit FINDER restarted
-    else step "Finder не был запущен"; emit FINDER absent; fi
+    head_ finder_head
+    if killall Finder 2>/dev/null; then step finder_ok; emit FINDER restarted
+    else step finder_absent; emit FINDER absent; fi
   fi
 
   # 4. awdl0 — интерфейс, на котором AirDrop ищет устройства. Лечит «Mac не видит
   #    iPhone». Требует прав администратора, поэтому запрос идёт через системное
   #    окно ввода пароля, а не через sudo в терминале.
-  if [ "$BOUNCE_AWDL" -eq 1 ]; then
+  if [ "$RESTART_WIFI" -eq 1 ]; then
     echo
-    echo "== Передёргиваю awdl0 (нужен пароль администратора) =="
+    head_ wifi_head
     if osascript -e 'do shell script "/sbin/ifconfig awdl0 down; sleep 1; /sbin/ifconfig awdl0 up" with administrator privileges' >/dev/null 2>&1; then
-      step "awdl0 перезапущен"; emit AWDL restarted
+      step wifi_ok; emit AWDL restarted
     else
-      step "не удалось (отменён ввод пароля или нет прав)"; emit AWDL failed
+      step wifi_fail; emit AWDL failed
     fi
   fi
 
   echo
-  echo "== Состояние =="
-  vis=$(defaults read com.apple.sharingd DiscoverableMode 2>/dev/null || echo '(не задана)')
-  awdl=$(ifconfig awdl0 2>/dev/null | head -1 | grep -o 'RUNNING' || echo 'не поднят')
-  step "видимость AirDrop: $vis"
-  step "awdl0: $awdl"
+  head_ state_head
+  step visible_to "$(defaults read com.apple.sharingd DiscoverableMode 2>/dev/null || t not_set)"
+  if ifconfig awdl0 2>/dev/null | head -1 | grep -q RUNNING; then
+    step wifi_state "$(t wifi_on)"
+  else
+    step wifi_state "$(t wifi_off)"
+  fi
   echo
-  echo "Готово. Откройте Finder -> AirDrop (Shift-Cmd-R) и проверьте."
+  head_ finally
 
   emit RESULT ok
   if [ "$killed" -gt 0 ]; then
-    emit SUMMARY "Снято зависших процессов: $killed, служба AirDrop перезапущена"
+    emit SUMMARY "$(printf "$(t sum_fixed)" "$killed")"
   else
-    emit SUMMARY "Зависших процессов не было, служба AirDrop перезапущена"
+    emit SUMMARY "$(t sum_nothing)"
   fi
 }
 
@@ -264,5 +333,5 @@ case "$CMD" in
   list)     do_list     ;;
   fix)      do_fix      ;;
   selftest) do_selftest ;;
-  *) echo "Использование: $(basename "$0") {check|list|fix|selftest} [--age N] [--finder] [--awdl]"; exit 2 ;;
+  *) echo "usage: $(basename "$0") {check|list|fix|selftest} [--finder] [--wifi] [--age N] [--lang ru|en]"; exit 2 ;;
 esac
