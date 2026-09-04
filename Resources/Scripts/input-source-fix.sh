@@ -37,9 +37,18 @@ HOTKEY_ID=60                  # 60 = «Select the previous input source»
 F18_KEYCODE=79                # виртуальный код клавиши F18
 F18_MODS=8388608              # флаг Function — именно так система пишет F18 в шорткат
 MIN_MACOS=11                  # ниже 11 не тестировалось (hidutil есть с 10.12)
-BACKUP_DIR="$HOME/Library/Application Support/Toolbelt"
+BACKUP_DIR="$HOME/Library/Application Support/MacOS Utilities"
 BACKUP="$BACKUP_DIR/input-source-backup.json"
+LEGACY_BACKUP_DIR="$HOME/Library/Application Support/Toolbelt"   # имя до версии 1.1.0
 ACTIVATE=/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings
+
+# Бэкап, снятый прежней версией приложения, переезжает под новое имя —
+# иначе кнопка «Откатить» перестала бы видеть уже сохранённое состояние.
+if [ -f "$LEGACY_BACKUP_DIR/input-source-backup.json" ] && [ ! -f "$BACKUP" ]; then
+  mkdir -p "$BACKUP_DIR"
+  mv "$LEGACY_BACKUP_DIR/input-source-backup.json" "$BACKUP"
+  rmdir "$LEGACY_BACKUP_DIR" 2>/dev/null
+fi
 
 # Строки вида @@ключ=значение читает приложение; для человека они безвредны.
 emit() { printf '@@%s=%s\n' "$1" "$2"; }

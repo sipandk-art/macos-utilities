@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "Toolbelt",
+    name: "MacOSUtilities",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(name: "Toolbelt", path: "Sources/Toolbelt")
+        .executableTarget(name: "MacOSUtilities", path: "Sources/MacOSUtilities")
     ]
 )

@@ -10,6 +10,39 @@ import SwiftUI
 enum Snapshot {
 
     static var isRequested: Bool { CommandLine.arguments.contains("--snapshot") }
+    static var isMeasureRequested: Bool { CommandLine.arguments.contains("--measure") }
+
+    /// `--measure`: печатает идеальную высоту каждого раздела при заданной ширине.
+    /// По самому высокому и выставлен размер окна по умолчанию, чтобы в исходном
+    /// состоянии не появлялась вертикальная прокрутка.
+    static func measure() {
+        Task { @MainActor in
+            let width = CommandLine.arguments
+                .drop(while: { $0 != "--measure" }).dropFirst().first
+                .flatMap(Double.init) ?? 668
+            let keepAwake = KeepAwake()
+            keepAwake.refreshDisplaySleep()
+            let inputTool = ScriptTool(scriptName: "input-source-fix",
+                                       scriptTitle: "input-source-fix.sh")
+            let airdropTool = ScriptTool(scriptName: "airdrop-fix",
+                                         scriptTitle: "airdrop-fix.sh")
+            await inputTool.check()
+            await airdropTool.check()
+
+            for tool in Tool.allCases {
+                let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
+                    .environmentObject(keepAwake)
+                    .environment(\.snapshotMode, true)
+                    .frame(width: width)
+                    .fixedSize(horizontal: false, vertical: true)
+                let renderer = ImageRenderer(content: page)
+                renderer.scale = 1
+                let h = renderer.nsImage?.size.height ?? 0
+                print("\(tool.rawValue): \(Int(h.rounded()))")
+            }
+            NSApp.terminate(nil)
+        }
+    }
 
     static func run() {
         let args = CommandLine.arguments

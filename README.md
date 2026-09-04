@@ -1,4 +1,4 @@
-# Toolbelt
+# MacOS Utilities
 
 Три утилиты для macOS в одном окне: надёжное переключение раскладки по Caps Lock,
 снятие зависшего AirDrop и режим «не давать Mac уснуть».
@@ -15,16 +15,17 @@
 
 ## Установка
 
-1. Скачать `Toolbelt-1.0.0.dmg` из [Releases](https://github.com/sipandk-art/toolbelt-mac/releases).
-2. Открыть DMG, перетащить **Toolbelt** в **Applications**.
-3. Первый запуск — правой кнопкой по иконке → **Открыть** → **Открыть**.
+1. Скачать `MacOS-Utilities-1.1.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases).
+2. Открыть DMG, перетащить **MacOS Utilities** в **Applications**.
+3. Запустить.
 
-Третий шаг нужен потому, что приложение подписано ad-hoc подписью, без платного
-сертификата разработчика Apple. Если macOS всё же говорит «повреждено», снимите
-карантинный атрибут:
+Сборки из релизов подписаны сертификатом Developer ID и нотаризованы Apple —
+дополнительных действий не требуется. Если вы собрали приложение сами, без
+сертификата, первый запуск идёт через правую кнопку по иконке → **Открыть** →
+**Открыть**, а при жалобе «повреждено» помогает снятие карантина:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Toolbelt.app
+xattr -dr com.apple.quarantine "/Applications/MacOS Utilities.app"
 ```
 
 Требуется macOS 13 (Ventura) или новее. Сборка универсальная: Apple Silicon и Intel.
@@ -50,7 +51,7 @@ xattr -dr com.apple.quarantine /Applications/Toolbelt.app
 (меньше двух — переключать нечего) и хвосты от Karabiner-Elements.
 
 **Откат.** Первый `apply` сохраняет прежнее состояние в
-`~/Library/Application Support/Toolbelt/input-source-backup.json`. Кнопка
+`~/Library/Application Support/MacOS Utilities/input-source-backup.json`. Кнопка
 «Откатить» возвращает системный шорткат к прежнему значению, снимает ремап
 и убирает LaunchAgent.
 
@@ -107,13 +108,13 @@ AirDrop; launchd поднимает его обратно сам.
 ## Сборка из исходников
 
 ```bash
-git clone https://github.com/sipandk-art/toolbelt-mac.git
-cd toolbelt-mac
+git clone https://github.com/sipandk-art/macos-utilities.git
+cd macos-utilities
 ./scripts/build-app.sh --dmg
 ```
 
-Нужен Xcode или Command Line Tools со Swift 5.9+. Результат — `build/Toolbelt.app`
-и `dist/Toolbelt-1.0.0.dmg`.
+Нужен Xcode или Command Line Tools со Swift 5.9+. Результат — `build/MacOS Utilities.app`
+и `dist/MacOS-Utilities-1.1.0.dmg`.
 
 Скрипты можно запускать и без приложения:
 
@@ -122,10 +123,63 @@ cd toolbelt-mac
 ./Resources/Scripts/airdrop-fix.sh list
 ```
 
+### Подпись и нотаризация
+
+По умолчанию скрипт сборки ставит ad-hoc подпись: приложение работает на своей
+машине, но у скачавшего Gatekeeper выдаст предупреждение. Чтобы собрать сборку
+для раздачи, нужны две вещи из платной учётной записи Apple Developer.
+
+**Сертификат Developer ID Application.** Именно он, не «Apple Development» и не
+«Apple Distribution» — те для отладки и для App Store. Создаётся на
+[developer.apple.com/account/resources/certificates](https://developer.apple.com/account/resources/certificates)
+кнопкой «+» → **Developer ID Application**, право на выпуск есть у роли Account
+Holder или Admin. Скачанный `.cer` открывается двойным кликом и попадает
+в связку ключей. Проверка:
+
+```bash
+security find-identity -v -p codesigning | grep "Developer ID Application"
+```
+
+**Профиль для нотаризации.** Нотаризация — это отправка сборки в Apple на
+автоматическую проверку; без неё Gatekeeper на чужой машине всё равно ругнётся.
+Нужен пароль приложения: [appleid.apple.com](https://appleid.apple.com) →
+«Вход и безопасность» → «Пароли приложений». Он один раз кладётся в связку ключей:
+
+```bash
+xcrun notarytool store-credentials notary \
+  --apple-id "почта@apple.id" \
+  --team-id ABCDE12345 \
+  --password "xxxx-xxxx-xxxx-xxxx"
+```
+
+`ABCDE12345` — Team ID, он же в скобках в имени сертификата и на странице
+Membership в аккаунте разработчика.
+
+**Сборка:**
+
+```bash
+SIGN_ID="Developer ID Application: ВАШЕ ИМЯ (ABCDE12345)" \
+NOTARY_PROFILE=notary \
+./scripts/build-app.sh --dmg
+```
+
+Скрипт подпишет приложение с hardened runtime и меткой времени, соберёт DMG,
+подпишет и его, отправит на нотаризацию, дождётся вердикта и прикрепит штамп
+(`stapler staple`) — после этого DMG открывается на чужом Mac без предупреждений
+и без интернета. Нотаризация занимает несколько минут.
+
+Проверить готовый файл:
+
+```bash
+spctl -a -vvv -t install dist/MacOS-Utilities-1.1.0.dmg
+```
+
+Ожидаемый ответ — `accepted` и `source=Notarized Developer ID`.
+
 ### Структура
 
 ```
-Sources/Toolbelt/          приложение на SwiftUI
+Sources/MacOSUtilities/    приложение на SwiftUI
 Resources/Scripts/         bash-скрипты, которые приложение выполняет и показывает
 scripts/build-app.sh       сборка .app и DMG
 scripts/make-icon.swift    иконка рисуется кодом, а не картинкой
@@ -149,7 +203,7 @@ scripts/make-icon.swift    иконка рисуется кодом, а не к�
 в этом README:
 
 ```bash
-./build/Toolbelt.app/Contents/MacOS/Toolbelt --snapshot docs/
+./build/MacOS\ Utilities.app/Contents/MacOS/MacOSUtilities --snapshot docs/
 ```
 
 ## Чего приложение не делает
@@ -162,8 +216,9 @@ scripts/make-icon.swift    иконка рисуется кодом, а не к�
 
 ## Известные ограничения
 
-- Приложение подписано ad-hoc подписью и не нотаризовано — отсюда ритуал
-  с «Открыть» при первом запуске.
+- Приложение не в песочнице (App Sandbox): `hidutil`, `launchctl` и `defaults`
+  из песочницы не работают, поэтому в Mac App Store его выложить нельзя —
+  только прямой раздачей.
 - Откат первого раздела возвращает системный шорткат и снимает ремап,
   но не восстанавливает произвольный прежний `UserKeyMapping`, если он был
   сложнее одного правила — HID-ремап снимается целиком.
@@ -175,7 +230,7 @@ MIT — см. [LICENSE](LICENSE).
 
 ---
 
-**English summary.** Toolbelt is a small macOS utility app bundling three fixes:
+**English summary.** MacOS Utilities is a small macOS utility app bundling three fixes:
 a reliable Caps Lock → input-source switcher (HID remap to F18 plus a system
 shortcut, surviving reboots), a cleaner for stuck AirDrop share-sheet helper
 processes with a `sharingd` restart, and a keep-awake toggle built on IOKit power

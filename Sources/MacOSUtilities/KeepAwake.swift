@@ -3,7 +3,7 @@ import IOKit.pwr_mgt
 import SwiftUI
 
 enum AppInfo {
-    static let repositoryURL = "https://github.com/sipandk-art/toolbelt-mac"
+    static let repositoryURL = "https://github.com/sipandk-art/macos-utilities"
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
@@ -49,7 +49,7 @@ final class KeepAwake: ObservableObject {
 
     func enable() {
         guard !isOn else { return }
-        let name = "Toolbelt: не давать Mac уснуть" as CFString
+        let name = "MacOS Utilities: не давать Mac уснуть" as CFString
         let level = IOPMAssertionLevel(kIOPMAssertionLevelOn)
 
         var sys: IOPMAssertionID = 0

@@ -24,7 +24,7 @@ struct RootView: View {
 
                 Divider()
                 HStack {
-                    Text("Toolbelt \(AppInfo.version)")
+                    Text("MacOS Utilities \(AppInfo.version)")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
                     Spacer()
