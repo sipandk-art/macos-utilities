@@ -54,9 +54,16 @@ enum Corrector {
         }
     }
 
-    /// Выделенный текст в активном поле, если система его отдаёт.
-    /// Нужен для исправления не одного слова, а того, что человек выделил сам.
+    /// Выделенный текст. Сначала спрашиваем систему доступности — это быстро
+    /// и не трогает буфер обмена. Программы на Electron (мессенджеры, редакторы,
+    /// приложения нейросетей) выделение так не отдают, поэтому для них есть
+    /// запасной путь через буфер обмена — с возвратом его содержимого.
     static func selectedText() -> String? {
+        if let text = accessibilitySelection() { return text }
+        return clipboardSelection()
+    }
+
+    private static func accessibilitySelection() -> String? {
         let system = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString,
@@ -68,5 +75,67 @@ enum Corrector {
                                             &value) == .success,
               let text = value as? String, !text.isEmpty else { return nil }
         return text
+    }
+
+    /// Читает выделение, попросив программу скопировать его, и возвращает
+    /// буфер обмена в прежнее состояние — вместе со всеми его типами данных,
+    /// а не только текстом: там могло лежать изображение или файл.
+    private static func clipboardSelection() -> String? {
+        let pb = NSPasteboard.general
+        let saved: [(NSPasteboard.PasteboardType, Data)] = (pb.types ?? []).compactMap { type in
+            guard let data = pb.data(forType: type) else { return nil }
+            return (type, data)
+        }
+        let before = pb.changeCount
+
+        sendCopy()
+
+        // Ждём, пока программа положит выделение в буфер. Если выделения нет,
+        // она ничего не положит, счётчик не изменится — так это и распознаём.
+        var text: String?
+        for _ in 0..<30 {
+            usleep(10_000)
+            if pb.changeCount != before {
+                text = pb.string(forType: .string)
+                break
+            }
+        }
+
+        if pb.changeCount != before {
+            pb.clearContents()
+            for (type, data) in saved { pb.setData(data, forType: type) }
+        }
+        guard let text, !text.isEmpty else { return nil }
+        return text
+    }
+
+    private static func sendCopy() {
+        guard let src = source() else { return }
+        let commandKey: CGKeyCode = 55
+        let cKey: CGKeyCode = 8
+        // Модификатор отдельным событием: иначе система считает Command
+        // зажатым и следующие нажатия уходят как команды.
+        if let down = CGEvent(keyboardEventSource: src, virtualKey: commandKey, keyDown: true) {
+            down.type = .flagsChanged
+            down.flags = .maskCommand
+            down.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        usleep(20_000)
+        if let down = CGEvent(keyboardEventSource: src, virtualKey: cKey, keyDown: true) {
+            down.flags = .maskCommand
+            down.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        usleep(20_000)
+        if let up = CGEvent(keyboardEventSource: src, virtualKey: cKey, keyDown: false) {
+            up.flags = .maskCommand
+            up.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        usleep(20_000)
+        if let up = CGEvent(keyboardEventSource: src, virtualKey: commandKey, keyDown: false) {
+            up.type = .flagsChanged
+            up.flags = []
+            up.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        usleep(20_000)
     }
 }

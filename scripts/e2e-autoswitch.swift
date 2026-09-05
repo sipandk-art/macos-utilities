@@ -96,7 +96,21 @@ func fieldText() -> String {
     return (value as? String) ?? "<не строка>"
 }
 
-func clearField() { type(Array(repeating: 51, count: 40)); pump(0.2) }
+func clearField() { type(Array(repeating: 51, count: 60)); pump(0.2) }
+
+/// Выделить всё. Модификатор идёт отдельным событием: иначе система считает
+/// Command зажатым и следующие буквы уходят как команды.
+func selectAll() {
+    let src = CGEventSource(stateID: .hidSystemState)
+    let m = CGEvent(keyboardEventSource: src, virtualKey: 55, keyDown: true)!
+    m.type = .flagsChanged; m.flags = .maskCommand; m.post(tap: .cghidEventTap); pump(0.05)
+    let d = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true)!
+    d.flags = .maskCommand; d.post(tap: .cghidEventTap); pump(0.06)
+    let u = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)!
+    u.flags = .maskCommand; u.post(tap: .cghidEventTap); pump(0.06)
+    let mu = CGEvent(keyboardEventSource: src, virtualKey: 55, keyDown: false)!
+    mu.type = .flagsChanged; mu.flags = []; mu.post(tap: .cghidEventTap); pump(0.3)
+}
 
 func focusTextEdit() {
     guard let app = NSRunningApplication.runningApplications(
@@ -186,22 +200,24 @@ if !backToLatin.contains("ABC") { failures += 1; print("  FAIL: раскладк
 }
 
 if mode == "manual" {
-print("== 6. ручное исправление нескольких слов подряд ==")
+print("== 6. без выделения правится только последнее слово ==")
 requireTextEdit(); selectLatin(); clearField()
 // ghbdtn rfr ltkf — это «привет как дела», набранное в латинской раскладке.
 type(ghbdtn + [49] + [15, 3, 15] + [49] + [37, 17, 40, 3])
 pump(0.5)
 doubleShift()
 pump(1.5)
-check("три слова разом", fieldText(), "привет как дела")
+check("тронуто только последнее", fieldText(), "ghbdtn rfr дела")
 
-print("== 7. захват останавливается на настоящем слове ==")
+print("== 7. выделенный текст правится целиком ==")
 requireTextEdit(); selectLatin(); clearField()
-type(hello + [49] + ghbdtn)
+type(ghbdtn + [49] + [15, 3, 15] + [49] + [37, 17, 40, 3])
+pump(0.5)
+selectAll()
 pump(0.5)
 doubleShift()
-pump(1.5)
-check("hello не тронут", fieldText(), "hello привет")
+pump(1.8)
+check("всё выделенное", fieldText(), "привет как дела")
 
 }
 

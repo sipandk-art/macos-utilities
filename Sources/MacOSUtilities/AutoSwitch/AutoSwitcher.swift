@@ -233,36 +233,19 @@ final class AutoSwitcher: ObservableObject {
         lastAction = "\(typed) → \(alternative)"
     }
 
-    /// Сколько последних нажатий взять в ручную правку.
-    ///
-    /// Последнее слово берётся всегда — за этим сочетание и нажимают. Дальше
-    /// захват расширяется назад, пока предыдущие слова не являются словами
-    /// в той письменности, в которой сейчас видны на экране. Так «ghbdtn rfr
-    /// ltkf» правится целиком, а в «привет как дела ghbdtn» будет тронуто
-    /// только последнее слово: «дела» — настоящее слово, на нём захват встаёт.
+    /// Что взять в ручную правку, когда ничего не выделено: последнее слово
+    /// вместе с разделителями после него. Несколько слов разом сознательно
+    /// не берём — для этого есть выделение, там границы задаёт человек,
+    /// а не догадка программы.
     private func tailToFix(in current: LayoutService.Layout) -> [KeyPress] {
         guard !run.isEmpty else { return [] }
-
-        // Разбиваем набранное на слова: индекс начала и конца каждого.
-        var words: [(start: Int, end: Int)] = []
-        var index = 0
-        while index < run.count {
-            guard isLetter(run[index]) else { index += 1; continue }
-            let start = index
-            while index < run.count, isLetter(run[index]) { index += 1 }
-            words.append((start, index))
-        }
-        guard let last = words.last else { return [] }
-
-        var from = words.count - 1
-        while from > 0 {
-            let previous = words[from - 1]
-            let text = LayoutService.render(Array(run[previous.start..<previous.end]), in: current)
-            if checker.isRealWord(text) { break }        // настоящее слово — дальше не идём
-            from -= 1
-        }
-        _ = last
-        return Array(run[words[from].start...])           // вместе с разделителями до конца
+        var start: Int? = nil
+        var index = run.count - 1
+        // Идём с конца: пропускаем хвостовые разделители, затем берём буквы.
+        while index >= 0, !isLetter(run[index]) { index -= 1 }
+        while index >= 0, isLetter(run[index]) { start = index; index -= 1 }
+        guard let from = start else { return [] }
+        return Array(run[from...])
     }
 
     /// Посимвольный перевод готового текста между раскладками — для выделения,

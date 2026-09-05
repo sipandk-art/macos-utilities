@@ -199,8 +199,8 @@ struct AutoSwitchView: View {
                 HotkeyField()
 
                 Text(loc.t(
-                    "Сочетание исправляет выделенный текст. Если ничего не выделено — последние слова подряд: захват идёт назад и останавливается на первом настоящем слове. Нажатое сразу второй раз возвращает как было.",
-                    "The shortcut fixes the selected text. With nothing selected it takes the last words in a row, walking back until it meets a real word. Pressing it again right away undoes the change."))
+                    "Сочетание исправляет последнее слово. Выделите текст — исправит всё выделенное, сколько бы там ни было слов. Нажатое сразу второй раз возвращает как было.",
+                    "The shortcut fixes the last word. Select some text and it fixes the whole selection, however many words. Pressing it again right away undoes the change."))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -261,10 +261,10 @@ struct AutoSwitchView: View {
                     .font(.system(size: 13, weight: .semibold))
                 Text(loc.t(
                     """
-                    Набранное слово живёт до ближайшего пробела и стирается из памяти. Ничего не пишется на диск и никуда не отправляется. В полях пароля перехват выключается сам. Выключите раздел — слежение прекращается сразу.
+                    Набранное слово живёт до ближайшего пробела и стирается из памяти. Ничего не пишется на диск и никуда не отправляется. В полях пароля перехват выключается сам. Выключите раздел — слежение прекращается сразу. Выделение читается у самой программы; если она его не отдаёт (так устроен Electron) — приложение просит скопировать его и тут же возвращает буфер обмена как был.
                     """,
                     """
-                    The current word is kept only until the next space, then discarded. Nothing is written to disk and nothing is sent anywhere. In password fields the app stops watching on its own. Turn the section off and the watching stops immediately.
+                    The current word is kept only until the next space, then discarded. Nothing is written to disk and nothing is sent anywhere. In password fields the app stops watching on its own. Turn the section off and the watching stops immediately. Selected text is read from the app itself; when it won't hand it over (Electron apps don't) the app asks it to copy, then puts the clipboard back as it was.
                     """))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
