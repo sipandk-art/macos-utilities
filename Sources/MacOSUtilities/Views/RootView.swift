@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var selection: Tool
     @StateObject private var keepAwake = KeepAwake.shared
     @StateObject private var loc = Localization.shared
@@ -61,6 +62,8 @@ struct RootView: View {
         // прохода отрисовки: менять @Published прямо в init() нельзя, SwiftUI
         // ловит это как правку состояния внутри обновления вида.
         .task { keepAwake.bootstrap(); autoSwitcher.bootstrap() }
+        // Пока окно живо, оставляем способ открыть его заново после закрытия.
+        .onAppear { WindowPresenter.shared.open = { openWindow(id: "main") } }
     }
 
     private func row(for tool: Tool) -> some View {

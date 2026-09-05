@@ -87,14 +87,7 @@ final class MenuBarController {
     @objc private func toggleAwake() { awake.toggle() }
 
     @objc private func openWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        // Окно WindowGroup закрывается вместе с последним окном сцены,
-        // поэтому просим систему открыть новое штатным способом.
-        if let window = NSApp.windows.first(where: { $0.canBecomeMain && !($0 is NSPanel) }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
-        }
+        WindowPresenter.shared.show()
     }
 
     @objc private func quit() { NSApp.terminate(nil) }

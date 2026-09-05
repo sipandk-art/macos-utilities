@@ -21,9 +21,14 @@
 открывает ровно тот код, который будет выполнен. Права администратора нужны
 ровно в одном месте, и об этом сказано прямо в интерфейсе.
 
+Приложение живёт значком в строке меню. Закрытое окно убирает значок из Dock,
+но само приложение продолжает работать: автопереключение и режим «не спать»
+не должны выключаться от того, что окно закрыли. Вернуть окно — пункт
+«Открыть окно…» в меню значка, выйти совсем — «Выйти» там же.
+
 ## Установка
 
-Скачать `MacOS-Utilities-1.4.1.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.5.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel.
@@ -176,7 +181,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.4.1.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.5.0.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 
