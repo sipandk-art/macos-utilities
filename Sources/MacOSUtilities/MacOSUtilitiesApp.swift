@@ -10,6 +10,29 @@ final class WindowPresenter {
     static let shared = WindowPresenter()
     var open: (() -> Void)?
 
+    /// Показывать ли окно при запуске. Запоминается при выходе: вышли
+    /// с открытым окном — в следующий раз оно откроется, вышли из строки
+    /// меню при закрытом — приложение запустится молча, значком.
+    private let key = "showWindowAtLaunch"
+
+    var showsWindowAtLaunch: Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? true
+    }
+
+    func rememberWindowState() {
+        UserDefaults.standard.set(!visibleWindows.isEmpty, forKey: key)
+    }
+
+    /// Окно запуска обрабатывается один раз. Опираться на флаг, выставленный
+    /// делегатом приложения, нельзя: SwiftUI показывает окно раньше, чем
+    /// делегат получает applicationDidFinishLaunching.
+    private var handledInitialWindow = false
+
+    private func trace(_ text: String) {
+        guard AutoSwitcher.tracing else { return }
+        FileHandle.standardError.write(Data(("[окно] " + text + "\n").utf8))
+    }
+
     /// Видимые обычные окна приложения. Панели и служебные окна не в счёт.
     var visibleWindows: [NSWindow] {
         NSApp.windows.filter { $0.isVisible && $0.canBecomeMain && !($0 is NSPanel) }
@@ -27,6 +50,27 @@ final class WindowPresenter {
         }
     }
 
+    /// Прячет окно, открытое SwiftUI при запуске, если в прошлый раз вышли
+    /// с закрытым окном. Вызывается из окна, как только оно появилось.
+    func hideInitialWindowIfNeeded() {
+        guard !handledInitialWindow else { return }
+        handledInitialWindow = true
+        trace("вид появился, показывать окно = \(showsWindowAtLaunch)")
+        guard !showsWindowAtLaunch else { return }
+        // Несколько заходов, а не один: в момент появления вида окно ещё
+        // не числится видимым, а macOS может вернуть его следом сама —
+        // она восстанавливает окна прошлого сеанса.
+        for delay in [0.0, 0.15, 0.5, 1.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                MainActor.assumeIsolated {
+                    let targets = NSApp.windows.filter { $0.canBecomeMain && !($0 is NSPanel) }
+                    self.trace("заход +\(delay)с: окон \(targets.count)")
+                    for window in targets { window.close() }
+                }
+            }
+        }
+    }
+
     /// Спрятать значок из Dock, когда окон не осталось. Приложение продолжает
     /// работать значком в строке меню.
     func hideFromDockIfNoWindows() {
@@ -41,8 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let menuBar = MenuBarController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        let showsWindow = WindowPresenter.shared.showsWindowAtLaunch
+                          || Snapshot.isRequested || Snapshot.isMeasureRequested
+        NSApp.setActivationPolicy(showsWindow ? .regular : .accessory)
+        if showsWindow { NSApp.activate(ignoringOtherApps: true) }
 
         // Без окон приложение выглядит для системы бездельником, и она вправе
         // снять процесс, чтобы освободить память. Для значка в строке меню это
@@ -78,6 +124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// в строке меню, и выйти можно пунктом «Выйти» в его меню. Иначе
     /// закрытие окна молча выключало бы фоновые режимы.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        guard !Snapshot.isRequested && !Snapshot.isMeasureRequested else { return }
+        WindowPresenter.shared.rememberWindowState()
+    }
 
     /// Клик по значку в Dock, когда окон нет, — просьба показать окно.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

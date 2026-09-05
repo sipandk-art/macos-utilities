@@ -63,7 +63,10 @@ struct RootView: View {
         // ловит это как правку состояния внутри обновления вида.
         .task { keepAwake.bootstrap(); autoSwitcher.bootstrap() }
         // Пока окно живо, оставляем способ открыть его заново после закрытия.
-        .onAppear { WindowPresenter.shared.open = { openWindow(id: "main") } }
+        .onAppear {
+            WindowPresenter.shared.open = { openWindow(id: "main") }
+            WindowPresenter.shared.hideInitialWindowIfNeeded()
+        }
     }
 
     private func row(for tool: Tool) -> some View {

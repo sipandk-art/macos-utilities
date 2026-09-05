@@ -26,9 +26,13 @@
 не должны выключаться от того, что окно закрыли. Вернуть окно — пункт
 «Открыть окно…» в меню значка, выйти совсем — «Выйти» там же.
 
+Запускается приложение так же, как вы его оставили: вышли с открытым окном —
+окно откроется, вышли при закрытом — запустится молча, одним значком. Это же
+правило работает и при запуске вместе с системой.
+
 ## Установка
 
-Скачать `MacOS-Utilities-1.5.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.5.1.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel.
@@ -181,7 +185,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.5.0.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.5.1.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 
