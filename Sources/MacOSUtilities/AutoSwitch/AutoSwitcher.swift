@@ -329,6 +329,35 @@ final class AutoSwitcher: ObservableObject {
         let converted = String("ghbdtn".map { map[$0] ?? $0 })
         if converted == "привет" { ok += 1 } else { bad += 1; print("FAIL: таблица символов дала \(converted)") }
 
+        // Короткие слова. Порог опущен до трёх букв, и здесь проверяется обе
+        // стороны сделки: что короткие слова теперь правятся и что при этом
+        // не начали портиться сокращения и обычные слова обоих языков.
+        let toLatin = charMap(from: pair.cyrillic, to: pair.latin)
+        let toCyrillic = charMap(from: pair.latin, to: pair.cyrillic)
+        func flip(_ s: String) -> String {
+            LayoutService.script(of: s) == .cyrillic
+                ? String(s.map { toLatin[$0] ?? $0 })
+                : String(s.map { toCyrillic[$0] ?? $0 })
+        }
+        func verdict(_ s: String) -> WordChecker.Verdict {
+            checker.judge(typed: s, alternative: flip(s))
+        }
+
+        for typed in ["црн", "црщ", "рщц", "нуы"] {          // why, who, how, yes
+            if verdict(typed) == .wrongLayout { ok += 1 }
+            else { bad += 1; print("FAIL: «\(typed)» должно было стать «\(flip(typed))»") }
+        }
+
+        let mustNotTouch = [
+            "png", "jpg", "svg", "css", "sql", "xml", "yml", "npm", "git", "ssh",
+            "api", "url", "pdf", "zip", "env", "tmp", "lib", "src", "app", "div",
+            "как", "что", "для", "они", "мне", "год", "при", "под", "над", "три",
+            "the", "and", "for", "you", "not", "but", "are", "was", "who", "why",
+        ]
+        let touched = mustNotTouch.filter { verdict($0) == .wrongLayout }
+        if touched.isEmpty { ok += 1 }
+        else { bad += 1; print("FAIL: тронуло то, что трогать нельзя: \(touched.joined(separator: ", "))") }
+
         // Списки исключений: галки должны включать и выключать ровно свои группы,
         // и ни одна группа не должна протекать в чужую.
         let none = excluded(terminals: false, passwords: false, browsers: false)

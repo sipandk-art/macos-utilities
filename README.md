@@ -23,7 +23,7 @@
 
 ## Установка
 
-Скачать `MacOS-Utilities-1.3.1.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.3.2.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel.
@@ -75,8 +75,12 @@ Mac-версию которого забросили в 2017 году.
 пропускает чужую письменность мимо. Поэтому язык проверки выбирается
 по письменности самого слова, а не по раскладке.
 
-Не трогаются слова короче четырёх букв, ВЕРХНИЙ РЕГИСТР, camelCase, всё
+Не трогаются слова короче трёх букв, ВЕРХНИЙ РЕГИСТР, camelCase, всё
 с цифрами и знаками путей, а также ввод с зажатыми Cmd, Ctrl и Opt.
+
+Порог именно три буквы, а не две: на трёх ложных срабатываний не нашлось
+вовсе — «црн» становится «why», а `png`, `sql`, «как» и `the` остаются как
+есть. На двух они появляются: `ns` превратилось бы в «ты».
 
 **Где не вмешивается.** По умолчанию — терминалы и редакторы кода, менеджеры
 паролей и любое системное поле пароля. Отдельной галкой можно отключить и все
@@ -163,7 +167,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.3.1.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.3.2.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 

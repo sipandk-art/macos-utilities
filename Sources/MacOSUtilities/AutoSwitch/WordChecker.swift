@@ -52,7 +52,11 @@ final class WordChecker {
     /// ВЕРХНИМ РЕГИСТРОМ, camelCase или похожее на путь и адрес. Именно на этом
     /// добре автопереключатели обычно и портят текст.
     static func looksLikeWord(_ s: String) -> Bool {
-        guard s.count >= 4 else { return false }
+        // Порог в три буквы, а не в две. На трёх буквах ложных срабатываний
+        // не нашлось вовсе: «црн» становится «why», а «png», «sql», «как»,
+        // «the» остаются как есть. На двух буквах появляются — например
+        // «ns» превратилось бы в «ты», а это частое техническое сокращение.
+        guard s.count >= 3 else { return false }
         if s.contains(where: { $0.isNumber }) { return false }
         if s.contains(where: { "/\\@:._-+=#$~".contains($0) }) { return false }
         let letters = s.filter { $0.isLetter }

@@ -47,6 +47,13 @@ func selectLatin() {
     pump(0.5)
 }
 
+func selectCyrillic() {
+    if let ru = inputSources().first(where: { sourceID($0).contains("Russian") }) {
+        TISSelectInputSource(ru)
+    }
+    pump(0.5)
+}
+
 func type(_ codes: [CGKeyCode]) {
     let src = CGEventSource(stateID: .hidSystemState)
     for code in codes {
@@ -99,8 +106,12 @@ func focusTextEdit() {
     print("не удалось вывести TextEdit вперёд"); exit(2)
 }
 
-/// Чужое окно под нажатиями — это чужой текст. Каждый шаг сверяется с фокусом.
+/// Чужое окно под нажатиями — это чужой текст. Каждый шаг сверяется с фокусом;
+/// если его перехватила другая программа, один раз пробуем вернуть, и только
+/// потом сдаёмся — печатать вслепую нельзя.
 func requireTextEdit() {
+    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.TextEdit" { return }
+    focusTextEdit()
     let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"
     if front != "com.apple.TextEdit" { print("фокус ушёл в \(front) — стоп"); exit(2) }
 }
@@ -146,6 +157,16 @@ print("== 4. повторное сочетание возвращает как �
 doubleShift()
 pump(1.2)
 check("возврат", fieldText(), "ghbdtn")
+
+print("== 5. короткое слово в обратную сторону ==")
+requireTextEdit(); selectCyrillic(); clearField()
+// Клавиши w h y: в русской раскладке это «црн», в латинской — «why».
+type([13, 4, 16] + [49])
+pump(1.2)
+check("црн + пробел", fieldText(), "why ")
+let backToLatin = currentLayout()
+print("     раскладка переключилась на: \(backToLatin)")
+if !backToLatin.contains("ABC") { failures += 1; print("  FAIL: раскладка должна была стать латинской") }
 
 selectLatin()
 clearField()
