@@ -22,7 +22,7 @@ enum Snapshot {
                 .flatMap(Double.init) ?? 668
             let keepAwake = KeepAwake()
             keepAwake.refreshDisplaySleep()
-            let loc = Localization()
+            let loc = Localization.shared
             let inputTool = ScriptTool(scriptName: "input-source-fix",
                                        scriptTitle: "input-source-fix.sh")
             let airdropTool = ScriptTool(scriptName: "airdrop-fix",
@@ -34,6 +34,7 @@ enum Snapshot {
                 let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
                     .environmentObject(keepAwake)
                     .environmentObject(loc)
+                    .environmentObject(AutoSwitcher.shared)
                     .environment(\.snapshotMode, true)
                     .frame(width: width)
                     .fixedSize(horizontal: false, vertical: true)
@@ -60,7 +61,7 @@ enum Snapshot {
         Task { @MainActor in
             let keepAwake = KeepAwake()
             keepAwake.refreshDisplaySleep()
-            let loc = Localization()
+            let loc = Localization.shared
 
             let inputTool = ScriptTool(scriptName: "input-source-fix",
                                        scriptTitle: "input-source-fix.sh")
@@ -73,6 +74,7 @@ enum Snapshot {
                 let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
                     .environmentObject(keepAwake)
                     .environmentObject(loc)
+                    .environmentObject(AutoSwitcher.shared)
                     .environment(\.snapshotMode, true)
                     .frame(width: 660, height: 700)
                 write(page, to: dir.appendingPathComponent("\(tool.rawValue).png"))
@@ -80,6 +82,7 @@ enum Snapshot {
             // Второй кадр keep-alive — во включённом состоянии.
             keepAwake.enable()
             write(KeepAwakeView().environmentObject(keepAwake).environmentObject(loc)
+                    .environmentObject(AutoSwitcher.shared)
                     .environment(\.snapshotMode, true).frame(width: 660, height: 700),
                   to: dir.appendingPathComponent("keepAwake-on.png"))
             keepAwake.disable()
@@ -93,6 +96,7 @@ enum Snapshot {
                                  airdropTool: ScriptTool) -> some View {
         switch tool {
         case .inputSource: InputSourceView(tool: inputTool)
+        case .autoSwitch:  AutoSwitchView()
         case .airdrop:     AirDropView(tool: airdropTool)
         case .keepAwake:   KeepAwakeView()
         }

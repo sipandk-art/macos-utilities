@@ -1,0 +1,153 @@
+#!/usr/bin/env swift
+//
+// e2e-autoswitch.swift — проверка автопереключения целиком, на живой клавиатуре.
+//
+//   1. Запустить приложение и включить в нём раздел «Автопереключение».
+//   2. Открыть TextEdit с пустым документом.
+//   3. swift scripts/e2e-autoswitch.swift
+//
+// Стенд сам выводит TextEdit вперёд, печатает настоящими событиями клавиатуры
+// и читает результат через систему универсального доступа. Самому стенду нужны
+// те же разрешения, что и приложению.
+//
+// Две ловушки, на которые он натыкался и ради которых написан именно так:
+//
+//   • Carbon отдаёт текущую раскладку через цикл событий. Если спать в usleep,
+//     а не крутить RunLoop, читается устаревшее значение и кажется, что
+//     переключения не произошло.
+//   • Синтетическое событие с модификатором оставляет систему в состоянии
+//     «Command зажат», и следующие буквы уходят как команды. Поэтому поле
+//     чистится одними Backspace.
+
+import AppKit
+import Carbon
+
+func pump(_ seconds: Double) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
+
+func inputSources() -> [TISInputSource] {
+    let filter = [kTISPropertyInputSourceCategory as String:
+                  kTISCategoryKeyboardInputSource as String] as CFDictionary
+    return TISCreateInputSourceList(filter, false)!.takeRetainedValue() as! [TISInputSource]
+}
+
+func sourceID(_ s: TISInputSource) -> String {
+    guard let p = TISGetInputSourceProperty(s, kTISPropertyInputSourceID) else { return "?" }
+    return Unmanaged<CFString>.fromOpaque(p).takeUnretainedValue() as String
+}
+
+func currentLayout() -> String {
+    guard let s = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return "?" }
+    return sourceID(s)
+}
+
+func selectLatin() {
+    if let abc = inputSources().first(where: { sourceID($0).contains("ABC") }) {
+        TISSelectInputSource(abc)
+    }
+    pump(0.5)
+}
+
+func type(_ codes: [CGKeyCode]) {
+    let src = CGEventSource(stateID: .hidSystemState)
+    for code in codes {
+        CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap)
+        pump(0.03)
+        CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
+        pump(0.06)
+    }
+}
+
+/// Два «чистых» нажатия Shift подряд — горячее сочетание по умолчанию.
+func doubleShift() {
+    let src = CGEventSource(stateID: .hidSystemState)
+    for _ in 0..<2 {
+        let down = CGEvent(keyboardEventSource: src, virtualKey: 56, keyDown: true)!
+        down.type = .flagsChanged; down.flags = .maskShift
+        down.post(tap: .cghidEventTap)
+        pump(0.05)
+        let up = CGEvent(keyboardEventSource: src, virtualKey: 56, keyDown: false)!
+        up.type = .flagsChanged; up.flags = []
+        up.post(tap: .cghidEventTap)
+        pump(0.08)
+    }
+}
+
+func fieldText() -> String {
+    let system = AXUIElementCreateSystemWide()
+    var focused: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString,
+                                        &focused) == .success, let element = focused
+    else { return "<нет фокуса>" }
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element as! AXUIElement, kAXValueAttribute as CFString,
+                                        &value) == .success else { return "<нет значения>" }
+    return (value as? String) ?? "<не строка>"
+}
+
+func clearField() { type(Array(repeating: 51, count: 40)); pump(0.2) }
+
+func focusTextEdit() {
+    guard let app = NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.TextEdit").first else {
+        print("TextEdit не запущен — откройте его с пустым документом"); exit(2)
+    }
+    app.activate(options: [.activateAllWindows])
+    for _ in 0..<20 {
+        pump(0.2)
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.TextEdit" { return }
+    }
+    print("не удалось вывести TextEdit вперёд"); exit(2)
+}
+
+/// Чужое окно под нажатиями — это чужой текст. Каждый шаг сверяется с фокусом.
+func requireTextEdit() {
+    let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"
+    if front != "com.apple.TextEdit" { print("фокус ушёл в \(front) — стоп"); exit(2) }
+}
+
+var failures = 0
+func check(_ name: String, _ got: String, _ want: String) {
+    requireTextEdit()
+    let ok = got == want
+    if !ok { failures += 1 }
+    print("  \(ok ? "PASS" : "FAIL") \(name): получили «\(got)», ждали «\(want)»")
+}
+
+focusTextEdit()
+
+// g h b d t n — это «привет», набранное в латинской раскладке.
+let ghbdtn: [CGKeyCode] = [5, 4, 11, 2, 17, 45]
+let hello: [CGKeyCode] = [4, 14, 37, 37, 31]
+
+print("== 1. слово не в той раскладке правится на пробеле ==")
+requireTextEdit(); selectLatin(); clearField()
+type(ghbdtn + [49])
+pump(1.2)
+check("ghbdtn + пробел", fieldText(), "привет ")
+let after = currentLayout()
+print("     раскладка переключилась на: \(after)")
+if !after.contains("Russian") { failures += 1; print("  FAIL: раскладка должна была стать русской") }
+
+print("== 2. правильное английское слово трогать нельзя ==")
+requireTextEdit(); selectLatin(); clearField()
+type(hello + [49])
+pump(1.0)
+check("hello + пробел", fieldText(), "hello ")
+
+print("== 3. ручное исправление двойным Shift, ещё до пробела ==")
+requireTextEdit(); selectLatin(); clearField()
+type(ghbdtn)
+pump(0.4)
+doubleShift()
+pump(1.2)
+check("ghbdtn -> привет", fieldText(), "привет")
+
+print("== 4. повторное сочетание возвращает как было ==")
+doubleShift()
+pump(1.2)
+check("возврат", fieldText(), "ghbdtn")
+
+selectLatin()
+clearField()
+print(failures == 0 ? "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" : "\nПРОВАЛЕНО: \(failures)")
+exit(failures == 0 ? 0 : 1)

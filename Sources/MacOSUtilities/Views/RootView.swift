@@ -2,8 +2,9 @@ import SwiftUI
 
 struct RootView: View {
     @State private var selection: Tool
-    @StateObject private var keepAwake = KeepAwake()
-    @StateObject private var loc = Localization()
+    @StateObject private var keepAwake = KeepAwake.shared
+    @StateObject private var loc = Localization.shared
+    @StateObject private var autoSwitcher = AutoSwitcher.shared
 
     init(initial: Tool = .inputSource) {
         _selection = State(initialValue: initial)
@@ -48,16 +49,18 @@ struct RootView: View {
         } detail: {
             switch selection {
             case .inputSource: InputSourceView()
+            case .autoSwitch:  AutoSwitchView()
             case .airdrop:     AirDropView()
             case .keepAwake:   KeepAwakeView()
             }
         }
         .environmentObject(keepAwake)
         .environmentObject(loc)
+        .environmentObject(autoSwitcher)
         // Опрос настроек питания и восстановление тумблера — после первого
         // прохода отрисовки: менять @Published прямо в init() нельзя, SwiftUI
         // ловит это как правку состояния внутри обновления вида.
-        .task { keepAwake.bootstrap() }
+        .task { keepAwake.bootstrap(); autoSwitcher.bootstrap() }
     }
 
     private func row(for tool: Tool) -> some View {

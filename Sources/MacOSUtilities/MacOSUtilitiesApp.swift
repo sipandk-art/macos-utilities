@@ -1,15 +1,33 @@
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    private let menuBar = MenuBarController()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        if !Snapshot.isRequested && !Snapshot.isMeasureRequested {
+            menuBar.install()
+            // Фоновые режимы поднимаются сами: если автопереключение было
+            // включено, оно должно работать сразу после входа в систему,
+            // а не после того, как человек откроет окно.
+            AutoSwitcher.shared.bootstrap()
+            KeepAwake.shared.bootstrap()
+        }
         if Snapshot.isRequested { Snapshot.run() }
         if Snapshot.isMeasureRequested { Snapshot.measure() }
+        if CommandLine.arguments.contains("--selftest") {
+            exit(AutoSwitcher.selftest() ? 0 : 1)
+        }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // В режиме снимков окна закрываются по одному — выходить рано.
-        !Snapshot.isRequested && !Snapshot.isMeasureRequested
+        if Snapshot.isRequested || Snapshot.isMeasureRequested { return false }
+        // Пока работает что-то фоновое, закрытие окна не должно выключать это
+        // без спроса: приложение остаётся значком в строке меню. Если фоновых
+        // режимов нет, ведём себя как обычная программа и выходим.
+        return !(AutoSwitcher.shared.isEnabled || KeepAwake.shared.isOn)
     }
 }
 

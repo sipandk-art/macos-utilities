@@ -1,17 +1,20 @@
 # MacOS Utilities
 
-Три утилиты для macOS в одном окне: надёжное переключение раскладки по Caps Lock,
-снятие зависшего AirDrop и режим «не давать Mac уснуть».
+Четыре утилиты для macOS в одном окне: надёжное переключение раскладки
+по Caps Lock, исправление текста, набранного не в той раскладке, снятие
+зависшего AirDrop и режим «не давать Mac уснуть».
 
 <p>
 <img src="docs/screenshot-input-source.png" width="420" alt="Раздел «Переключение раскладки»">
+<img src="docs/screenshot-auto-switch.png" width="420" alt="Раздел «Набрано не в той раскладке»">
+</p>
+<p>
 <img src="docs/screenshot-keep-awake.png" width="420" alt="Раздел «Mac не уходит в сон»">
+<img src="docs/screenshot-input-source-en.png" width="420" alt="The same section in English">
 </p>
 
 Интерфейс на русском и английском, переключается внизу боковой панели.
 При первом запуске берётся язык системы.
-
-<p><img src="docs/screenshot-input-source-en.png" width="420" alt="The same section in English"></p>
 
 Приложение ничего не прячет. Каждый фикс — обычный bash-скрипт с подробными
 комментариями, который лежит внутри бандла; кнопка **«Показать весь скрипт»**
@@ -20,7 +23,7 @@
 
 ## Установка
 
-Скачать `MacOS-Utilities-1.2.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.3.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel.
@@ -49,6 +52,42 @@ macOS 13 (Ventura) и новее, Apple Silicon и Intel.
 ремап и убирает LaunchAgent.
 
 Права администратора не нужны: всё перечисленное — настройки текущего пользователя.
+
+## Набрано не в той раскладке
+
+Начали писать «ghbdtn» вместо «привет» — приложение замечает это на пробеле,
+переписывает слово и переключает язык. То же самое делал Punto Switcher,
+Mac-версию которого забросили в 2017 году.
+
+Как принимается решение:
+
+1. Нажатия копятся до границы слова — запоминаются коды клавиш, не символы.
+2. На пробеле слово собирается дважды: в текущей раскладке и в другой.
+   Соответствие клавиш символам берётся у самой системы (`UCKeyTranslate`),
+   поэтому работает любая пара раскладок, а не только зашитая в код.
+3. Каждый вариант проверяется по словарю macOS (`NSSpellChecker`) — своих
+   словарей приложение не носит.
+4. Переписывается только если набранное словом не является, а вариант
+   в другой раскладке — является. Оба верны или оба неверны — не трогаем.
+
+Здесь есть ловушка, из-за которой наивная проверка портит текст: английский
+словарь macOS считает **любую** кириллицу правильным словом — он просто
+пропускает чужую письменность мимо. Поэтому язык проверки выбирается
+по письменности самого слова, а не по раскладке.
+
+Не трогаются слова короче четырёх букв, ВЕРХНИЙ РЕГИСТР, camelCase, всё
+с цифрами и знаками путей, а также ввод с зажатыми Cmd, Ctrl и Opt.
+
+**Горячее сочетание** (по умолчанию двойной Shift) исправляет выделенный текст,
+а если ничего не выделено — последнее слово. Нажатое сразу второй раз возвращает
+как было. Автоматику при этом можно выключить и пользоваться только сочетанием.
+
+**Разрешения.** Это единственный раздел, которому нужны разрешения macOS:
+универсальный доступ, чтобы стирать и печатать, и мониторинг ввода, чтобы видеть
+нажатия. Они запрашиваются только при включении раздела. Набранное слово живёт
+до ближайшего пробела и стирается из памяти: ничего не пишется на диск и никуда
+не отправляется. В полях пароля перехват выключается сам, терминалы, редакторы
+кода и менеджеры паролей пропускаются по умолчанию.
 
 ## Зависший AirDrop
 
@@ -105,6 +144,8 @@ AirDrop; launchd поднимает его обратно сам.
   `com.user.capslock2f18` — появляется только по кнопке «Включить» в первом
   разделе и удаляется по кнопке «Отменить изменения».
 - Не требует прав администратора нигде, кроме опции «Перезапустить Wi-Fi для AirDrop».
+- Не просит разрешений macOS, пока не включено автопереключение раскладки, —
+  и перестаёт следить за клавиатурой сразу, как только его выключить.
 
 ## Сборка из исходников
 
@@ -115,7 +156,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.2.0.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.3.0.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 
@@ -123,6 +164,9 @@ cd macos-utilities
 ./Resources/Scripts/input-source-fix.sh check
 ./Resources/Scripts/airdrop-fix.sh list
 ./Resources/Scripts/airdrop-fix.sh selftest
+
+# логика автопереключения: перевод нажатий, словарь, таблица символов
+"./build/MacOS Utilities.app/Contents/MacOS/MacOSUtilities" --selftest
 
 # на английском
 ./Resources/Scripts/airdrop-fix.sh check --lang en
@@ -136,10 +180,12 @@ MIT — см. [LICENSE](LICENSE).
 
 ---
 
-**English summary.** MacOS Utilities bundles three macOS fixes in one window:
+**English summary.** MacOS Utilities bundles four macOS fixes in one window:
 a reliable Caps Lock → input-source switcher (HID remap to F18 plus a system
-shortcut, surviving reboots), a cleaner for stuck AirDrop share-sheet helper
-processes with a `sharingd` restart, and a keep-awake toggle built on IOKit power
+shortcut, surviving reboots), a Punto-Switcher-style fixer for text typed in the
+wrong layout (keystrokes are re-rendered through both layouts and checked against
+the macOS dictionary), a cleaner for stuck AirDrop share-sheet helper processes
+with a `sharingd` restart, and a keep-awake toggle built on IOKit power
 assertions that lets the display sleep while the system stays up. Every fix is a
 commented bash script shipped inside the bundle and viewable from the UI before
 you run it. No admin password is required except for the optional Wi-Fi restart.

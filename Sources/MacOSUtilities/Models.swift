@@ -69,13 +69,14 @@ final class ScriptTool: ObservableObject {
 
 /// Разделы приложения. Порядок здесь = порядок в боковой панели.
 enum Tool: String, CaseIterable, Identifiable {
-    case inputSource, airdrop, keepAwake
+    case inputSource, autoSwitch, airdrop, keepAwake
 
     var id: String { rawValue }
 
     @MainActor func title(_ loc: Localization) -> String {
         switch self {
         case .inputSource: return loc.t("Раскладка", "Keyboard")
+        case .autoSwitch:  return loc.t("Автопереключение", "Auto-switch")
         case .airdrop:     return loc.t("AirDrop", "AirDrop")
         case .keepAwake:   return loc.t("Не спать", "Stay awake")
         }
@@ -86,6 +87,7 @@ enum Tool: String, CaseIterable, Identifiable {
     @MainActor func blurb(_ loc: Localization) -> String {
         switch self {
         case .inputSource: return loc.t("Caps Lock переключает язык", "Caps Lock switches language")
+        case .autoSwitch:  return loc.t("Исправляет ghbdtn на привет", "Turns ghbdtn into привет")
         case .airdrop:     return loc.t("Снять зависший AirDrop", "Unstick AirDrop")
         case .keepAwake:   return loc.t("Mac не уходит в сон", "Keep the Mac awake")
         }
@@ -94,6 +96,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .inputSource: return "keyboard"
+        case .autoSwitch:  return "character.cursor.ibeam"
         case .airdrop:     return "dot.radiowaves.right"
         case .keepAwake:   return "bolt.fill"
         }
@@ -101,6 +104,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .inputSource: return .blue
+        case .autoSwitch:  return .indigo
         case .airdrop:     return .orange
         case .keepAwake:   return .green
         }

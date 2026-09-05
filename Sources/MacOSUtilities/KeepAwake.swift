@@ -23,6 +23,8 @@ enum AppInfo {
 @MainActor
 final class KeepAwake: ObservableObject {
 
+    static let shared = KeepAwake()
+
     @Published private(set) var isOn = false
     @Published private(set) var displaySleepMinutes: Int?
 

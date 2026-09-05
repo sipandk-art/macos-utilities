@@ -16,6 +16,8 @@ enum Lang: String, CaseIterable, Identifiable {
 @MainActor
 final class Localization: ObservableObject {
 
+    static let shared = Localization()
+
     @Published var lang: Lang {
         didSet { UserDefaults.standard.set(lang.rawValue, forKey: key) }
     }
