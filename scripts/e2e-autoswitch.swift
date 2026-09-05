@@ -4,7 +4,12 @@
 //
 //   1. Запустить приложение и включить в нём раздел «Автопереключение».
 //   2. Открыть TextEdit с пустым документом.
-//   3. swift scripts/e2e-autoswitch.swift
+//   3. swift scripts/e2e-autoswitch.swift auto     — правка на пробеле
+//      swift scripts/e2e-autoswitch.swift manual   — горячее сочетание
+//
+// Два прогона нужны потому, что режимы мешают друг другу: с включённой
+// автоматикой слова правятся по одному прямо по ходу набора, и проверить
+// на них многословную ручную правку нельзя.
 //
 // Стенд сам выводит TextEdit вперёд, печатает настоящими событиями клавиатуры
 // и читает результат через систему универсального доступа. Самому стенду нужны
@@ -116,6 +121,9 @@ func requireTextEdit() {
     if front != "com.apple.TextEdit" { print("фокус ушёл в \(front) — стоп"); exit(2) }
 }
 
+/// Режим прогона: «auto» — правка на пробеле, «manual» — горячее сочетание.
+let mode = CommandLine.arguments.dropFirst().first ?? "auto"
+
 var failures = 0
 func check(_ name: String, _ got: String, _ want: String) {
     requireTextEdit()
@@ -130,6 +138,7 @@ focusTextEdit()
 let ghbdtn: [CGKeyCode] = [5, 4, 11, 2, 17, 45]
 let hello: [CGKeyCode] = [4, 14, 37, 37, 31]
 
+if mode == "auto" {
 print("== 1. слово не в той раскладке правится на пробеле ==")
 requireTextEdit(); selectLatin(); clearField()
 type(ghbdtn + [49])
@@ -145,6 +154,9 @@ type(hello + [49])
 pump(1.0)
 check("hello + пробел", fieldText(), "hello ")
 
+}
+
+if mode == "manual" {
 print("== 3. ручное исправление двойным Shift, ещё до пробела ==")
 requireTextEdit(); selectLatin(); clearField()
 type(ghbdtn)
@@ -158,6 +170,9 @@ doubleShift()
 pump(1.2)
 check("возврат", fieldText(), "ghbdtn")
 
+}
+
+if mode == "auto" {
 print("== 5. короткое слово в обратную сторону ==")
 requireTextEdit(); selectCyrillic(); clearField()
 // Клавиши w h y: в русской раскладке это «црн», в латинской — «why».
@@ -167,6 +182,28 @@ check("црн + пробел", fieldText(), "why ")
 let backToLatin = currentLayout()
 print("     раскладка переключилась на: \(backToLatin)")
 if !backToLatin.contains("ABC") { failures += 1; print("  FAIL: раскладка должна была стать латинской") }
+
+}
+
+if mode == "manual" {
+print("== 6. ручное исправление нескольких слов подряд ==")
+requireTextEdit(); selectLatin(); clearField()
+// ghbdtn rfr ltkf — это «привет как дела», набранное в латинской раскладке.
+type(ghbdtn + [49] + [15, 3, 15] + [49] + [37, 17, 40, 3])
+pump(0.5)
+doubleShift()
+pump(1.5)
+check("три слова разом", fieldText(), "привет как дела")
+
+print("== 7. захват останавливается на настоящем слове ==")
+requireTextEdit(); selectLatin(); clearField()
+type(hello + [49] + ghbdtn)
+pump(0.5)
+doubleShift()
+pump(1.5)
+check("hello не тронут", fieldText(), "hello привет")
+
+}
 
 selectLatin()
 clearField()

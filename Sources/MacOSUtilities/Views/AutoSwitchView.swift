@@ -199,8 +199,8 @@ struct AutoSwitchView: View {
                 HotkeyField()
 
                 Text(loc.t(
-                    "Сочетание исправляет выделенный текст, а если ничего не выделено — последнее слово. Нажатое сразу второй раз возвращает как было.",
-                    "The shortcut fixes the selected text, or the last word when nothing is selected. Pressing it again right away undoes the change."))
+                    "Сочетание исправляет выделенный текст. Если ничего не выделено — последние слова подряд: захват идёт назад и останавливается на первом настоящем слове. Нажатое сразу второй раз возвращает как было.",
+                    "The shortcut fixes the selected text. With nothing selected it takes the last words in a row, walking back until it meets a real word. Pressing it again right away undoes the change."))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

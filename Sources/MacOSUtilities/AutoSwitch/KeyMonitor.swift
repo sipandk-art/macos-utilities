@@ -12,9 +12,9 @@ final class KeyMonitor {
 
     enum Signal {
         case letter(KeyPress)      // обычная клавиша с буквой
-        case separator             // пробел, перевод строки, знак препинания
+        case separator(KeyPress)   // пробел или знак препинания — они остаются в тексте
         case erase                 // Backspace: убираем последнее нажатие
-        case reset                 // курсор ушёл — накопленное слово больше не под ним
+        case reset                 // курсор ушёл — набранное больше не под ним
         case hotkey                // просили исправить вручную
     }
 
@@ -31,8 +31,6 @@ final class KeyMonitor {
     /// Программы, в которых перехват молчит: терминалы, среды разработки,
     /// менеджеры паролей. Проверяется идентификатор активного приложения.
     var excludedBundleIDs: Set<String> = []
-    /// Автоматический разбор выключен — работает только горячее сочетание.
-    var autoEnabled = true
 
     private(set) var isRunning = false
     private var tap: CFMachPort?
@@ -124,7 +122,12 @@ final class KeyMonitor {
         // В поле пароля не смотрим вообще.
         if IsSecureEventInputEnabled() { onSignal?(.reset); return pass }
 
-        if isExcludedApp() { return pass }
+        if let excluded = excludedFrontApp() {
+            if AutoSwitcher.tracing {
+                FileHandle.standardError.write(Data("[trace] пропускаю: \(excluded)\n".utf8))
+            }
+            return pass
+        }
 
         switch type {
         case .leftMouseDown, .rightMouseDown:
@@ -143,9 +146,11 @@ final class KeyMonitor {
         }
     }
 
-    private func isExcludedApp() -> Bool {
-        guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
-        return excludedBundleIDs.contains(id)
+    /// Возвращает идентификатор активной программы, если она в списке исключений.
+    private func excludedFrontApp() -> String? {
+        guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+              excludedBundleIDs.contains(id) else { return nil }
+        return id
     }
 
     /// Двойной Shift. Считается только «чистое» нажатие: если между двумя
@@ -183,7 +188,10 @@ final class KeyMonitor {
             }
         }
 
-        guard autoEnabled else { return false }
+        // Нажатия копятся всегда, даже когда автоматика выключена: иначе
+        // горячему сочетанию нечего было бы исправлять — оно умело бы только
+        // выделенный текст, а последнее слово ему было бы недоступно.
+        // Решение «править или нет» принимается уровнем выше.
 
         // Сочетания с Cmd/Ctrl/Opt — это команды, а не текст.
         if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
@@ -195,7 +203,9 @@ final class KeyMonitor {
         case 51:                                   // Backspace
             onSignal?(.erase)
         case 36, 76, 48, 53:                       // Return, Enter, Tab, Esc
-            onSignal?(.separator)
+            // Ввод закончен и, скорее всего, уже отправлен: править нечего,
+            // а накопленное больше не лежит под курсором.
+            onSignal?(.reset)
         case 123...126, 115, 116, 119, 121, 117:   // стрелки, Home/End, PageUp/Down, Delete
             onSignal?(.reset)
         default:
@@ -204,7 +214,7 @@ final class KeyMonitor {
             if isLetterKey(press) {
                 onSignal?(.letter(press))
             } else {
-                onSignal?(.separator)
+                onSignal?(.separator(press))
             }
         }
         return false

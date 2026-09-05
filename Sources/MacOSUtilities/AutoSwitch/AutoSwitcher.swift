@@ -14,6 +14,17 @@ final class AutoSwitcher: ObservableObject {
 
     static let shared = AutoSwitcher()
 
+    /// `--trace`: печатает в stderr, что видит перехватчик и какое решение
+    /// принимает. Нужен, чтобы отличать «не долетели нажатия» от «долетели,
+    /// но решили не трогать» — без него причина сбоя в чужой программе
+    /// не отличима на глаз.
+    static let tracing = CommandLine.arguments.contains("--trace")
+
+    private func trace(_ text: @autoclosure () -> String) {
+        guard Self.tracing else { return }
+        FileHandle.standardError.write(Data(("[trace] " + text() + "\n").utf8))
+    }
+
     // MARK: Настройки
 
     @Published var isEnabled = false { didSet { save("autoSwitchEnabled", isEnabled); apply() } }
@@ -36,11 +47,13 @@ final class AutoSwitcher: ObservableObject {
     private let checker = WordChecker()
     private let monitor = KeyMonitor()
 
-    /// Нажатия текущего слова. Очищаются на границе слова.
-    private var buffer: [KeyPress] = []
-    /// Последнее законченное слово и разделитель после него — чтобы горячее
-    /// сочетание работало и после того, как пробел уже нажат.
-    private var completed: (keys: [KeyPress], separator: String)?
+    /// Всё, что набрано подряд под текущим курсором: буквы и разделители между
+    /// ними. Очищается, как только курсор уходит — клик мышью, стрелки, Enter,
+    /// переключение программы. Ничего не сохраняется и не покидает память.
+    private var run: [KeyPress] = []
+    /// Ограничение на длину: правка стирает набранное посимвольно, и на очень
+    /// длинном куске это заметная пачка нажатий. Хвост важнее начала.
+    private let runLimit = 240
     /// Что заменили в прошлый раз: повторное сочетание возвращает как было.
     private var undo: (inserted: String, original: String)?
 
@@ -72,11 +85,13 @@ final class AutoSwitcher: ObservableObject {
 
     private func apply() {
         monitor.hotkey = hotkey
-        monitor.autoEnabled = autoMode
         monitor.excludedBundleIDs = excludedIDs()
 
         if isEnabled && hasAccessibility {
-            if !monitor.isRunning { _ = monitor.start() }
+            if !monitor.isRunning {
+                let started = monitor.start()
+                trace(started ? "перехват запущен" : "перехват НЕ запустился")
+            }
         } else if monitor.isRunning {
             monitor.stop()
         }
@@ -104,43 +119,70 @@ final class AutoSwitcher: ObservableObject {
     private func handle(_ signal: KeyMonitor.Signal) {
         switch signal {
         case .letter(let press):
-            buffer.append(press)
-            completed = nil
+            append(press)
             undo = nil
 
         case .erase:
-            if !buffer.isEmpty { buffer.removeLast() } else { completed = nil }
+            if !run.isEmpty { run.removeLast() }
             undo = nil
 
         case .reset:
-            buffer = []
-            completed = nil
+            trace("сброс")
+            run = []
             undo = nil
 
-        case .separator:
-            let keys = buffer
-            buffer = []
-            guard !keys.isEmpty else { completed = nil; return }
+        case .separator(let press):
+            let word = trailingWord()
+            append(press)
+            undo = nil
+            guard !word.isEmpty else { return }
             // Разделитель ещё не дошёл до программы — обрабатываем следующим
             // тактом, когда он уже вставлен и курсор стоит за ним.
             DispatchQueue.main.async { [weak self] in
-                self?.finishWord(keys)
+                self?.finishWord(word)
             }
 
         case .hotkey:
+            trace("горячее сочетание")
             DispatchQueue.main.async { [weak self] in self?.manualFix() }
         }
     }
 
+    private func append(_ press: KeyPress) {
+        run.append(press)
+        if run.count > runLimit { run.removeFirst(run.count - runLimit) }
+    }
+
+    /// Буквы в конце набранного — то, что сейчас считается «последним словом».
+    private func trailingWord() -> [KeyPress] {
+        var word: [KeyPress] = []
+        for press in run.reversed() {
+            guard isLetter(press) else { break }
+            word.insert(press, at: 0)
+        }
+        return word
+    }
+
+    private func isLetter(_ press: KeyPress) -> Bool {
+        guard let current = layouts.current,
+              let text = LayoutService.translate(source: current.source,
+                                                 keycode: press.keycode, shift: press.shift),
+              let ch = text.first else { return false }
+        return ch.isLetter
+    }
+
     /// Слово закончено: если автоматика включена — проверяем и правим.
     private func finishWord(_ keys: [KeyPress]) {
-        completed = (keys, "")
-        guard autoMode, let pair = layouts.pair, let current = layouts.current else { return }
+        guard autoMode else { trace("автоматика выключена"); return }
+        guard let pair = layouts.pair else { trace("нет пары раскладок"); return }
+        guard let current = layouts.current else { trace("текущая раскладка не определена"); return }
         let other = current.id == pair.latin.id ? pair.cyrillic : pair.latin
 
         let typed = LayoutService.render(keys, in: current)
         let alternative = LayoutService.render(keys, in: other)
-        guard checker.judge(typed: typed, alternative: alternative) == .wrongLayout else { return }
+        let verdict = checker.judge(typed: typed, alternative: alternative)
+        trace("слово «\(typed)» / «\(alternative)» → \(verdict == .wrongLayout ? "правим" : "не трогаем")")
+        guard verdict == .wrongLayout else { return }
 
         // Стираем слово вместе с уже вставленным разделителем и печатаем заново.
         // Разделитель добавляем обратно тем же символом, каким он был набран.
@@ -149,15 +191,18 @@ final class AutoSwitcher: ObservableObject {
         undo = (inserted: alternative, original: typed)
         correctionCount += 1
         lastAction = "\(typed) → \(alternative)"
-        completed = nil
+        // На экране теперь текст в другой раскладке, а накопленные нажатия
+        // соответствуют прежней. Сопоставлять их больше нельзя — начинаем заново.
+        run = []
     }
 
-    /// Ручное исправление: выделение, если оно есть; иначе текущее или
-    /// последнее слово. Повторное нажатие сразу после замены — возврат.
+    /// Ручное исправление. Порядок: выделенный текст, если он есть; иначе
+    /// хвост набранного. Повторное нажатие сразу после замены — возврат.
     private func manualFix() {
         if let undoPair = undo {
             Corrector.replace(charactersBack: undoPair.inserted.count, with: undoPair.original)
             undo = nil
+            run = []
             lastAction = "возврат: \(undoPair.original)"
             return
         }
@@ -166,6 +211,7 @@ final class AutoSwitcher: ObservableObject {
             guard let converted = convertText(selection) else { return }
             Corrector.replace(charactersBack: 0, with: converted)
             correctionCount += 1
+            run = []
             lastAction = "выделение → \(converted.prefix(24))"
             return
         }
@@ -173,24 +219,50 @@ final class AutoSwitcher: ObservableObject {
         guard let pair = layouts.pair, let current = layouts.current else { return }
         let other = current.id == pair.latin.id ? pair.cyrillic : pair.latin
 
-        if !buffer.isEmpty {
-            let typed = LayoutService.render(buffer, in: current)
-            let alternative = LayoutService.render(buffer, in: other)
-            Corrector.replace(charactersBack: typed.count, with: alternative)
-            layouts.select(other)
-            undo = (inserted: alternative, original: typed)
-            correctionCount += 1
-            lastAction = "\(typed) → \(alternative)"
-        } else if let last = completed {
-            let typed = LayoutService.render(last.keys, in: current)
-            let alternative = LayoutService.render(last.keys, in: other)
-            Corrector.replace(charactersBack: typed.count + 1, with: alternative + " ")
-            layouts.select(other)
-            undo = (inserted: alternative, original: typed)
-            correctionCount += 1
-            lastAction = "\(typed) → \(alternative)"
-            completed = nil
+        let tail = tailToFix(in: current)
+        guard !tail.isEmpty else { trace("нечего исправлять"); return }
+
+        let typed = LayoutService.render(tail, in: current)
+        let alternative = LayoutService.render(tail, in: other)
+        trace("вручную: «\(typed)» → «\(alternative)»")
+        Corrector.replace(charactersBack: typed.count, with: alternative)
+        layouts.select(other)
+        undo = (inserted: alternative, original: typed)
+        correctionCount += 1
+        run = []
+        lastAction = "\(typed) → \(alternative)"
+    }
+
+    /// Сколько последних нажатий взять в ручную правку.
+    ///
+    /// Последнее слово берётся всегда — за этим сочетание и нажимают. Дальше
+    /// захват расширяется назад, пока предыдущие слова не являются словами
+    /// в той письменности, в которой сейчас видны на экране. Так «ghbdtn rfr
+    /// ltkf» правится целиком, а в «привет как дела ghbdtn» будет тронуто
+    /// только последнее слово: «дела» — настоящее слово, на нём захват встаёт.
+    private func tailToFix(in current: LayoutService.Layout) -> [KeyPress] {
+        guard !run.isEmpty else { return [] }
+
+        // Разбиваем набранное на слова: индекс начала и конца каждого.
+        var words: [(start: Int, end: Int)] = []
+        var index = 0
+        while index < run.count {
+            guard isLetter(run[index]) else { index += 1; continue }
+            let start = index
+            while index < run.count, isLetter(run[index]) { index += 1 }
+            words.append((start, index))
         }
+        guard let last = words.last else { return [] }
+
+        var from = words.count - 1
+        while from > 0 {
+            let previous = words[from - 1]
+            let text = LayoutService.render(Array(run[previous.start..<previous.end]), in: current)
+            if checker.isRealWord(text) { break }        // настоящее слово — дальше не идём
+            from -= 1
+        }
+        _ = last
+        return Array(run[words[from].start...])           // вместе с разделителями до конца
     }
 
     /// Посимвольный перевод готового текста между раскладками — для выделения,
