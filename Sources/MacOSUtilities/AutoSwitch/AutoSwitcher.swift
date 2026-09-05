@@ -20,6 +20,7 @@ final class AutoSwitcher: ObservableObject {
     @Published var autoMode = true   { didSet { save("autoSwitchAuto", autoMode); apply() } }
     @Published var skipTerminals = true { didSet { save("autoSwitchSkipTerminals", skipTerminals); apply() } }
     @Published var skipPasswordManagers = true { didSet { save("autoSwitchSkipPasswords", skipPasswordManagers); apply() } }
+    @Published var skipBrowsers = false { didSet { save("autoSwitchSkipBrowsers", skipBrowsers); apply() } }
     @Published var launchAtLogin = false { didSet { setLaunchAtLogin(launchAtLogin) } }
     @Published var hotkey: KeyMonitor.Hotkey = .doubleShift { didSet { saveHotkey(); apply() } }
 
@@ -48,6 +49,7 @@ final class AutoSwitcher: ObservableObject {
         autoMode = UserDefaults.standard.object(forKey: "autoSwitchAuto") as? Bool ?? true
         skipTerminals = UserDefaults.standard.object(forKey: "autoSwitchSkipTerminals") as? Bool ?? true
         skipPasswordManagers = UserDefaults.standard.object(forKey: "autoSwitchSkipPasswords") as? Bool ?? true
+        skipBrowsers = UserDefaults.standard.bool(forKey: "autoSwitchSkipBrowsers")
         loadHotkey()
         monitor.onSignal = { [weak self] in self?.handle($0) }
     }
@@ -81,11 +83,20 @@ final class AutoSwitcher: ObservableObject {
         isRunning = monitor.isRunning
     }
 
-    private func excludedIDs() -> Set<String> {
+    /// Отдельно от `excludedIDs`, чтобы список можно было собрать и проверить
+    /// без запущенного перехвата — этим пользуется самопроверка.
+    static func excluded(terminals: Bool, passwords: Bool, browsers: Bool) -> Set<String> {
         var ids: Set<String> = []
-        if skipTerminals { ids.formUnion(Self.terminalsAndIDEs) }
-        if skipPasswordManagers { ids.formUnion(Self.passwordManagers) }
+        if terminals { ids.formUnion(terminalsAndIDEs) }
+        if passwords { ids.formUnion(passwordManagers) }
+        if browsers { ids.formUnion(Self.browsers) }
         return ids
+    }
+
+    private func excludedIDs() -> Set<String> {
+        return Self.excluded(terminals: skipTerminals,
+                             passwords: skipPasswordManagers,
+                             browsers: skipBrowsers)
     }
 
     // MARK: Разбор сигналов
@@ -255,7 +266,18 @@ final class AutoSwitcher: ObservableObject {
         "com.todesktop.230313mzl4w4u92",                       // Cursor
         "com.jetbrains.intellij", "com.jetbrains.intellij.ce", "com.jetbrains.pycharm",
         "com.jetbrains.WebStorm", "com.jetbrains.goland", "com.jetbrains.rider",
-        "com.sublimetext.4", "com.figma.Desktop",
+    ]
+
+    /// Браузеры. Отдельным списком и по умолчанию выключены: поле пароля
+    /// на веб-странице определить нельзя — ни Safari, ни Chrome не включают
+    /// системный «защищённый ввод» и не показывают такие поля системе
+    /// доступности (проверено). Кому это важно, отключает браузеры целиком.
+    static let browsers: Set<String> = [
+        "com.apple.Safari", "com.google.Chrome", "com.google.Chrome.canary",
+        "org.mozilla.firefox", "com.microsoft.edgemac", "com.brave.Browser",
+        "company.thebrowser.Browser",                          // Arc
+        "com.operasoftware.Opera", "ru.yandex.desktop.yandex-browser",
+        "com.vivaldi.Vivaldi",
     ]
 
     static let passwordManagers: Set<String> = [
@@ -306,6 +328,27 @@ final class AutoSwitcher: ObservableObject {
         let map = charMap(from: pair.latin, to: pair.cyrillic)
         let converted = String("ghbdtn".map { map[$0] ?? $0 })
         if converted == "привет" { ok += 1 } else { bad += 1; print("FAIL: таблица символов дала \(converted)") }
+
+        // Списки исключений: галки должны включать и выключать ровно свои группы,
+        // и ни одна группа не должна протекать в чужую.
+        let none = excluded(terminals: false, passwords: false, browsers: false)
+        let onlyBrowsers = excluded(terminals: false, passwords: false, browsers: true)
+        let defaults = excluded(terminals: true, passwords: true, browsers: false)
+        let checks: [(String, Bool)] = [
+            ("без галок список пуст", none.isEmpty),
+            ("браузеры включаются галкой", onlyBrowsers.contains("com.apple.Safari")
+                                        && onlyBrowsers.contains("com.google.Chrome")),
+            ("по умолчанию браузеры не исключены", !defaults.contains("com.apple.Safari")),
+            ("по умолчанию терминал исключён", defaults.contains("com.apple.Terminal")),
+            ("по умолчанию менеджер паролей исключён", defaults.contains("com.1password.1password")),
+            ("Sublime Text больше не в списке", !terminalsAndIDEs.contains("com.sublimetext.4")),
+            ("Figma больше не в списке", !terminalsAndIDEs.contains("com.figma.Desktop")),
+            ("группы не пересекаются", terminalsAndIDEs.isDisjoint(with: Self.browsers)
+                                    && passwordManagers.isDisjoint(with: Self.browsers)),
+        ]
+        for (name, passed) in checks {
+            if passed { ok += 1 } else { bad += 1; print("FAIL: \(name)") }
+        }
 
         print(bad == 0 ? "PASS: проверок пройдено \(ok)" : "FAIL: провалено \(bad) из \(ok + bad)")
         return bad == 0

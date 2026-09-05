@@ -227,6 +227,17 @@ struct AutoSwitchView: View {
                 }
                 .toggleStyle(.checkbox)
 
+                Toggle(isOn: Binding(get: { sw.skipBrowsers }, set: { sw.skipBrowsers = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(loc.t("Не вмешиваться в браузеры", "Stay out of browsers"))
+                            .font(.system(size: 12.5))
+                        Text(loc.t("поле пароля на сайте распознать нельзя — браузеры этого не показывают",
+                                   "a password field on a web page can't be detected — browsers don't expose it"))
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+
                 Toggle(isOn: Binding(get: { sw.launchAtLogin }, set: { sw.launchAtLogin = $0 })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(loc.t("Запускать при входе в систему", "Launch at login"))
