@@ -16,11 +16,11 @@ final class WindowPresenter {
     private let key = "showWindowAtLaunch"
 
     var showsWindowAtLaunch: Bool {
-        UserDefaults.standard.object(forKey: key) as? Bool ?? true
+        AppDefaults.store.object(forKey: key) as? Bool ?? true
     }
 
     func rememberWindowState() {
-        UserDefaults.standard.set(!visibleWindows.isEmpty, forKey: key)
+        AppDefaults.store.set(!visibleWindows.isEmpty, forKey: key)
     }
 
     /// Окно запуска обрабатывается один раз. Опираться на флаг, выставленный
@@ -102,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // а не после того, как человек откроет окно.
             AutoSwitcher.shared.bootstrap()
             KeepAwake.shared.bootstrap()
+            ClipboardHistory.shared.bootstrap()
 
             // Закрыли последнее окно — убираем значок из Dock. Уведомление
             // приходит до того, как окно перестало числиться видимым,

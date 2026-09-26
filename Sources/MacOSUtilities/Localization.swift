@@ -19,13 +19,13 @@ final class Localization: ObservableObject {
     static let shared = Localization()
 
     @Published var lang: Lang {
-        didSet { UserDefaults.standard.set(lang.rawValue, forKey: key) }
+        didSet { AppDefaults.store.set(lang.rawValue, forKey: key) }
     }
 
     private let key = "interfaceLanguage"
 
     init() {
-        if let saved = UserDefaults.standard.string(forKey: key),
+        if let saved = AppDefaults.store.string(forKey: key),
            let l = Lang(rawValue: saved) {
             lang = l
         } else {

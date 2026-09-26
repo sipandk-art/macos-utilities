@@ -6,6 +6,7 @@ struct RootView: View {
     @StateObject private var keepAwake = KeepAwake.shared
     @StateObject private var loc = Localization.shared
     @StateObject private var autoSwitcher = AutoSwitcher.shared
+    @StateObject private var clipboard = ClipboardHistory.shared
 
     init(initial: Tool = .inputSource) {
         _selection = State(initialValue: initial)
@@ -51,6 +52,7 @@ struct RootView: View {
             switch selection {
             case .inputSource: InputSourceView()
             case .autoSwitch:  AutoSwitchView()
+            case .clipboard:   ClipboardView()
             case .airdrop:     AirDropView()
             case .keepAwake:   KeepAwakeView()
             }
@@ -58,11 +60,16 @@ struct RootView: View {
         .environmentObject(keepAwake)
         .environmentObject(loc)
         .environmentObject(autoSwitcher)
+        .environmentObject(clipboard)
         // Опрос настроек питания и восстановление тумблера — после первого
         // прохода отрисовки: менять @Published прямо в init() нельзя, SwiftUI
         // ловит это как правку состояния внутри обновления вида.
         .task { keepAwake.bootstrap(); autoSwitcher.bootstrap() }
         // Пока окно живо, оставляем способ открыть его заново после закрытия.
+        // Пункт «Вся история…» в меню значка открывает окно сразу на нужном разделе.
+        .onReceive(NotificationCenter.default.publisher(for: .showTool)) { note in
+            if let tool = note.object as? Tool { selection = tool }
+        }
         .onAppear {
             WindowPresenter.shared.open = { openWindow(id: "main") }
             WindowPresenter.shared.hideInitialWindowIfNeeded()
@@ -90,4 +97,9 @@ struct RootView: View {
         }
         .padding(.vertical, 3)
     }
+}
+
+extension Notification.Name {
+    /// Открыть в окне конкретный раздел; объект уведомления — `Tool`.
+    static let showTool = Notification.Name("MacOSUtilities.showTool")
 }

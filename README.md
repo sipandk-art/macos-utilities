@@ -1,16 +1,16 @@
 # MacOS Utilities
 
-Четыре утилиты для macOS в одном окне: надёжное переключение раскладки
-по Caps Lock, исправление текста, набранного не в той раскладке, снятие
-зависшего AirDrop и режим «не давать Mac уснуть».
+Пять утилит для macOS в одном окне: надёжное переключение раскладки
+по Caps Lock, исправление текста, набранного не в той раскладке, история
+буфера обмена, снятие зависшего AirDrop и режим «не давать Mac уснуть».
 
 <p>
 <img src="docs/screenshot-input-source.png" width="420" alt="Раздел «Переключение раскладки»">
 <img src="docs/screenshot-auto-switch.png" width="420" alt="Раздел «Набрано не в той раскладке»">
 </p>
 <p>
+<img src="docs/screenshot-clipboard.png" width="420" alt="Раздел «История буфера обмена»">
 <img src="docs/screenshot-keep-awake.png" width="420" alt="Раздел «Mac не уходит в сон»">
-<img src="docs/screenshot-input-source-en.png" width="420" alt="The same section in English">
 </p>
 
 Интерфейс на русском и английском, переключается внизу боковой панели.
@@ -32,7 +32,7 @@
 
 ## Установка
 
-Скачать `MacOS-Utilities-1.6.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.7.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel.
@@ -129,6 +129,33 @@ Mac-версию которого забросили в 2017 году.
 не отправляется. В полях пароля перехват выключается сам, терминалы, редакторы
 кода и менеджеры паролей пропускаются по умолчанию.
 
+## История буфера обмена
+
+Обычно в буфере лежит только последнее скопированное. Здесь — всё, что вы
+копировали: по умолчанию последние 20 записей, можно 10, 50 или 100.
+
+- **Клик по значку в строке меню** — история первым списком. Выбрали запись —
+  она оказывается в буфере и сразу вставляется туда, где стоит курсор.
+- **⌃⌘V** открывает то же меню с клавиатуры: цифра 1–9 выбирает запись.
+  Не ⇧⌘V — во многих программах это «вставить без форматирования», и не ⌥⌘V —
+  им Finder перемещает скопированные файлы.
+- **Раздел в окне** — полный список: щелчок кладёт запись в буфер, булавка
+  закрепляет её, крестик удаляет. Закреплённые записи не вытесняются новыми
+  и не стираются кнопкой «Очистить».
+
+Повторная копия того же текста не дублирует запись, а поднимает её наверх.
+Записывается только текст.
+
+**Пароли не записываются.** Менеджеры паролей помечают скопированное
+специальными типами (`org.nspasteboard.ConcealedType` и подобными) — такие
+копии пропускаются целиком, как и всё, скопированное в окне менеджера паролей.
+
+История выключена по умолчанию и включается в разделе. Хранится только
+на этом Mac, в файле `~/Library/Application Support/MacOS Utilities/clipboard-history.json`,
+который доступен лишь владельцу учётной записи. Чтобы вставлять за вас,
+нужен универсальный доступ; без него выбранная запись просто окажется
+в буфере — вставите сами ⌘V.
+
 ## Зависший AirDrop
 
 Окно «Поделиться → AirDrop» рисует не Finder, а два его расширения:
@@ -186,6 +213,8 @@ AirDrop; launchd поднимает его обратно сам.
 - Не требует прав администратора нигде, кроме опции «Перезапустить Wi-Fi для AirDrop».
 - Не просит разрешений macOS, пока не включено автопереключение раскладки, —
   и перестаёт следить за клавиатурой сразу, как только его выключить.
+- Не записывает буфер обмена, пока не включена история. Включённая история
+  хранится только локально и не содержит паролей из менеджеров паролей.
 
 ## Сборка из исходников
 
@@ -196,7 +225,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.6.0.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.7.0.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 
@@ -220,12 +249,13 @@ MIT — см. [LICENSE](LICENSE).
 
 ---
 
-**English summary.** MacOS Utilities bundles four macOS fixes in one window:
+**English summary.** MacOS Utilities bundles five macOS tools in one window:
 a reliable Caps Lock → input-source switcher (HID remap to F18 plus a system
 shortcut, surviving reboots), a Punto-Switcher-style fixer for text typed in the
 wrong layout (keystrokes are re-rendered through both layouts and checked against
 the macOS dictionary), a cleaner for stuck AirDrop share-sheet helper processes
-with a `sharingd` restart, and a keep-awake toggle built on IOKit power
+with a `sharingd` restart, a clipboard history in the menu bar (⌃⌘V, pins,
+password-manager copies skipped), and a keep-awake toggle built on IOKit power
 assertions that lets the display sleep while the system stays up. Every fix is a
 commented bash script shipped inside the bundle and viewable from the UI before
 you run it. No admin password is required except for the optional Wi-Fi restart.

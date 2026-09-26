@@ -99,6 +99,15 @@ func doubleShift() {
 }
 
 func fieldText() -> String {
+    for _ in 0..<3 {
+        let text = readFieldText()
+        if !text.hasPrefix("<") { return text }
+        pump(0.3)
+    }
+    return readFieldText()
+}
+
+func readFieldText() -> String {
     let system = AXUIElementCreateSystemWide()
     var focused: CFTypeRef?
     guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString,

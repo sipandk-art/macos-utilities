@@ -29,12 +29,14 @@ enum Snapshot {
                                          scriptTitle: "airdrop-fix.sh")
             await inputTool.check()
             await airdropTool.check()
+            ClipboardHistory.shared.useSampleItems()
 
             for tool in Tool.allCases {
                 let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
                     .environmentObject(keepAwake)
                     .environmentObject(loc)
                     .environmentObject(AutoSwitcher.shared)
+                    .environmentObject(ClipboardHistory.shared)
                     .environment(\.snapshotMode, true)
                     .frame(width: width)
                     .fixedSize(horizontal: false, vertical: true)
@@ -69,21 +71,24 @@ enum Snapshot {
                                          scriptTitle: "airdrop-fix.sh")
             await inputTool.check()
             await airdropTool.check()
+            ClipboardHistory.shared.useSampleItems()
 
             for tool in Tool.allCases {
                 let page = pageView(tool, inputTool: inputTool, airdropTool: airdropTool)
                     .environmentObject(keepAwake)
                     .environmentObject(loc)
                     .environmentObject(AutoSwitcher.shared)
+                    .environmentObject(ClipboardHistory.shared)
                     .environment(\.snapshotMode, true)
-                    .frame(width: 660, height: 700)
+                    .frame(width: 660, height: 780)
                 write(page, to: dir.appendingPathComponent("\(tool.rawValue).png"))
             }
             // Второй кадр keep-alive — во включённом состоянии.
             keepAwake.enable()
             write(KeepAwakeView().environmentObject(keepAwake).environmentObject(loc)
                     .environmentObject(AutoSwitcher.shared)
-                    .environment(\.snapshotMode, true).frame(width: 660, height: 700),
+                    .environmentObject(ClipboardHistory.shared)
+                    .environment(\.snapshotMode, true).frame(width: 660, height: 780),
                   to: dir.appendingPathComponent("keepAwake-on.png"))
             keepAwake.disable()
             NSApp.terminate(nil)
@@ -97,6 +102,7 @@ enum Snapshot {
         switch tool {
         case .inputSource: InputSourceView(tool: inputTool)
         case .autoSwitch:  AutoSwitchView()
+        case .clipboard:   ClipboardView()
         case .airdrop:     AirDropView(tool: airdropTool)
         case .keepAwake:   KeepAwakeView()
         }

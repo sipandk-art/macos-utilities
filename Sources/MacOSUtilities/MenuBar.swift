@@ -12,6 +12,7 @@ final class MenuBarController {
     private var bag = Set<AnyCancellable>()
 
     private let sw = AutoSwitcher.shared
+    private let clipboard = ClipboardHistory.shared
     private let awake = KeepAwake.shared
     private let loc = Localization.shared
 
@@ -23,9 +24,15 @@ final class MenuBarController {
         self.item = item
         rebuild()
 
+        // ⌃⌘V открывает то же меню, что и клик по значку. Меню значка — системное:
+        // приложение не становится активным, фокус остаётся в программе, где
+        // стоит курсор, и выбранная запись вставляется именно туда.
+        clipboard.showMenu = { [weak self] in self?.item?.button?.performClick(nil) }
+
         // Меню пересобирается на любое изменение состояния: галки и подписи
         // должны совпадать с тем, что показывает окно.
-        for publisher in [sw.objectWillChange, awake.objectWillChange, loc.objectWillChange] {
+        for publisher in [sw.objectWillChange, awake.objectWillChange, loc.objectWillChange,
+                          clipboard.objectWillChange] {
             publisher
                 .receive(on: RunLoop.main)
                 .sink { [weak self] _ in self?.rebuild() }
@@ -41,6 +48,7 @@ final class MenuBarController {
         item.button?.image?.isTemplate = true
 
         let menu = NSMenu()
+        addClipboardSection(to: menu)
 
         let autoItem = NSMenuItem(title: loc.t("Исправлять раскладку", "Fix the layout"),
                                   action: #selector(toggleAuto), keyEquivalent: "")
@@ -85,6 +93,72 @@ final class MenuBarController {
     }
 
     @objc private func toggleAwake() { awake.toggle() }
+
+    // MARK: Буфер обмена
+
+    /// История — первым списком: за ней в меню и приходят чаще всего.
+    /// Первые девять записей выбираются цифрой, пока меню открыто.
+    private func addClipboardSection(to menu: NSMenu) {
+        let header = NSMenuItem(title: loc.t("Буфер обмена", "Clipboard"), action: nil, keyEquivalent: "")
+        header.attributedTitle = NSAttributedString(
+            string: loc.t("Буфер обмена", "Clipboard"),
+            attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                         .foregroundColor: NSColor.secondaryLabelColor])
+        header.isEnabled = false
+        menu.addItem(header)
+
+        guard clipboard.isEnabled else {
+            let enable = NSMenuItem(title: loc.t("Включить историю…", "Turn on history…"),
+                                    action: #selector(showClipboardSection), keyEquivalent: "")
+            enable.target = self
+            menu.addItem(enable)
+            menu.addItem(.separator())
+            return
+        }
+
+        let entries = Array(clipboard.displayItems.prefix(10))
+        if entries.isEmpty {
+            let empty = NSMenuItem(title: loc.t("Пока пусто — скопируйте что-нибудь",
+                                                "Empty — copy something"),
+                                   action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        for (index, entry) in entries.enumerated() {
+            let key = index < 9 ? String(index + 1) : ""
+            let mi = NSMenuItem(title: ClipboardHistory.menuTitle(entry.text),
+                                action: #selector(pickClip(_:)), keyEquivalent: key)
+            mi.keyEquivalentModifierMask = []
+            mi.target = self
+            mi.representedObject = entry.id
+            mi.toolTip = String(entry.text.prefix(400))
+            if entry.pinned {
+                mi.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)
+            }
+            menu.addItem(mi)
+        }
+
+        let all = NSMenuItem(title: loc.t("Вся история…", "Full history…"),
+                             action: #selector(showClipboardSection), keyEquivalent: "")
+        all.target = self
+        menu.addItem(all)
+        menu.addItem(.separator())
+    }
+
+    @objc private func pickClip(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let entry = clipboard.items.first(where: { $0.id == id }) else { return }
+        clipboard.pick(entry, paste: true)
+    }
+
+    @objc private func showClipboardSection() {
+        NotificationCenter.default.post(name: .showTool, object: Tool.clipboard)
+        WindowPresenter.shared.show()
+        // Окно могло только что создаться и ещё не подписаться на уведомление.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NotificationCenter.default.post(name: .showTool, object: Tool.clipboard)
+        }
+    }
 
     @objc private func openWindow() {
         WindowPresenter.shared.show()

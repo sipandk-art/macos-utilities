@@ -105,28 +105,35 @@ enum Corrector {
             pb.clearContents()
             for (type, data) in saved { pb.setData(data, forType: type) }
         }
+        // Эти копирование и возврат — служебные, в историю буфера им не место.
+        ClipboardHistory.shared.markOwnWrite()
         guard let text, !text.isEmpty else { return nil }
         return text
     }
 
-    private static func sendCopy() {
+    private static func sendCopy() { sendCommand(key: 8) }       // ⌘C
+
+    /// ⌘V — вставка выбранного из истории буфера туда, где стоит курсор.
+    static func sendPaste() { sendCommand(key: 9) }
+
+    /// Сочетание с Command. Модификатор идёт отдельными событиями: иначе
+    /// система считает Command зажатым и следующие нажатия уходят как команды.
+    /// События помечены — перехватчик клавиатуры узнаёт их и пропускает.
+    private static func sendCommand(key: CGKeyCode) {
         guard let src = source() else { return }
         let commandKey: CGKeyCode = 55
-        let cKey: CGKeyCode = 8
-        // Модификатор отдельным событием: иначе система считает Command
-        // зажатым и следующие нажатия уходят как команды.
         if let down = CGEvent(keyboardEventSource: src, virtualKey: commandKey, keyDown: true) {
             down.type = .flagsChanged
             down.flags = .maskCommand
             down.post(tap: .cgAnnotatedSessionEventTap)
         }
         usleep(20_000)
-        if let down = CGEvent(keyboardEventSource: src, virtualKey: cKey, keyDown: true) {
+        if let down = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: true) {
             down.flags = .maskCommand
             down.post(tap: .cgAnnotatedSessionEventTap)
         }
         usleep(20_000)
-        if let up = CGEvent(keyboardEventSource: src, virtualKey: cKey, keyDown: false) {
+        if let up = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: false) {
             up.flags = .maskCommand
             up.post(tap: .cgAnnotatedSessionEventTap)
         }

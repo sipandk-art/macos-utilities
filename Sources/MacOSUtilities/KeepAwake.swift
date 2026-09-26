@@ -43,7 +43,7 @@ final class KeepAwake: ObservableObject {
         refreshDisplaySleep()
         // Тумблер переживает перезапуск приложения: если его оставили включённым,
         // после запуска утверждения берутся заново.
-        if UserDefaults.standard.bool(forKey: defaultsKey) { enable() }
+        if AppDefaults.store.bool(forKey: defaultsKey) { enable() }
     }
 
     func toggle() { isOn ? disable() : enable() }
@@ -68,7 +68,7 @@ final class KeepAwake: ObservableObject {
         systemAssertion = sys
         networkAssertion = netOK ? net : 0
         isOn = true
-        UserDefaults.standard.set(true, forKey: defaultsKey)
+        AppDefaults.store.set(true, forKey: defaultsKey)
         refreshDisplaySleep()
     }
 
@@ -76,7 +76,7 @@ final class KeepAwake: ObservableObject {
         if systemAssertion != 0 { IOPMAssertionRelease(systemAssertion); systemAssertion = 0 }
         if networkAssertion != 0 { IOPMAssertionRelease(networkAssertion); networkAssertion = 0 }
         isOn = false
-        UserDefaults.standard.set(false, forKey: defaultsKey)
+        AppDefaults.store.set(false, forKey: defaultsKey)
     }
 
     /// Через сколько минут бездействия гаснет экран — читаем системную настройку,

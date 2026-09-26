@@ -58,11 +58,11 @@ final class AutoSwitcher: ObservableObject {
     private var undo: (inserted: String, original: String)?
 
     init() {
-        isEnabled = UserDefaults.standard.bool(forKey: "autoSwitchEnabled")
-        autoMode = UserDefaults.standard.object(forKey: "autoSwitchAuto") as? Bool ?? true
-        skipTerminals = UserDefaults.standard.object(forKey: "autoSwitchSkipTerminals") as? Bool ?? true
-        skipPasswordManagers = UserDefaults.standard.object(forKey: "autoSwitchSkipPasswords") as? Bool ?? true
-        skipBrowsers = UserDefaults.standard.bool(forKey: "autoSwitchSkipBrowsers")
+        isEnabled = AppDefaults.store.bool(forKey: "autoSwitchEnabled")
+        autoMode = AppDefaults.store.object(forKey: "autoSwitchAuto") as? Bool ?? true
+        skipTerminals = AppDefaults.store.object(forKey: "autoSwitchSkipTerminals") as? Bool ?? true
+        skipPasswordManagers = AppDefaults.store.object(forKey: "autoSwitchSkipPasswords") as? Bool ?? true
+        skipBrowsers = AppDefaults.store.bool(forKey: "autoSwitchSkipBrowsers")
         loadHotkey()
         monitor.onSignal = { [weak self] in self?.handle($0) }
     }
@@ -284,11 +284,11 @@ final class AutoSwitcher: ObservableObject {
     // MARK: Хранение настроек
 
     private func save(_ key: String, _ value: Bool) {
-        UserDefaults.standard.set(value, forKey: key)
+        AppDefaults.store.set(value, forKey: key)
     }
 
     private func saveHotkey() {
-        let d = UserDefaults.standard
+        let d = AppDefaults.store
         switch hotkey {
         case .doubleShift:
             d.set("doubleShift", forKey: "autoSwitchHotkeyKind")
@@ -300,7 +300,7 @@ final class AutoSwitcher: ObservableObject {
     }
 
     private func loadHotkey() {
-        let d = UserDefaults.standard
+        let d = AppDefaults.store
         guard d.string(forKey: "autoSwitchHotkeyKind") == "combo" else { hotkey = .doubleShift; return }
         let code = UInt16(d.integer(forKey: "autoSwitchHotkeyCode"))
         let flags = CGEventFlags(rawValue: UInt64(d.integer(forKey: "autoSwitchHotkeyFlags")))
@@ -464,6 +464,10 @@ final class AutoSwitcher: ObservableObject {
         for (name, passed) in checks {
             if passed { ok += 1 } else { bad += 1; print("FAIL: \(name)") }
         }
+
+        let clip = ClipboardHistory.selftest()
+        ok += clip.ok
+        bad += clip.bad
 
         print(bad == 0 ? "PASS: проверок пройдено \(ok)" : "FAIL: провалено \(bad) из \(ok + bad)")
         return bad == 0
