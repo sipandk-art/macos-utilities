@@ -118,7 +118,7 @@ final class AutoSwitcher: ObservableObject {
 
     private func handle(_ signal: KeyMonitor.Signal) {
         switch signal {
-        case .letter(let press):
+        case .char(let press):
             append(press)
             undo = nil
 
@@ -131,13 +131,13 @@ final class AutoSwitcher: ObservableObject {
             run = []
             undo = nil
 
-        case .separator(let press):
+        case .space(let press):
             let word = trailingWord()
             append(press)
             undo = nil
             guard !word.isEmpty else { return }
-            // Разделитель ещё не дошёл до программы — обрабатываем следующим
-            // тактом, когда он уже вставлен и курсор стоит за ним.
+            // Пробел ещё не дошёл до программы — обрабатываем следующим тактом,
+            // когда он уже вставлен и курсор стоит за ним.
             DispatchQueue.main.async { [weak self] in
                 self?.finishWord(word)
             }
@@ -153,22 +153,15 @@ final class AutoSwitcher: ObservableObject {
         if run.count > runLimit { run.removeFirst(run.count - runLimit) }
     }
 
-    /// Буквы в конце набранного — то, что сейчас считается «последним словом».
+    /// Всё, что набрано после последнего пробела, — «последнее слово»,
+    /// вместе со знаками внутри и по краям.
     private func trailingWord() -> [KeyPress] {
         var word: [KeyPress] = []
         for press in run.reversed() {
-            guard isLetter(press) else { break }
+            guard !press.isSpace else { break }
             word.insert(press, at: 0)
         }
         return word
-    }
-
-    private func isLetter(_ press: KeyPress) -> Bool {
-        guard let current = layouts.current,
-              let text = LayoutService.translate(source: current.source,
-                                                 keycode: press.keycode, shift: press.shift),
-              let ch = text.first else { return false }
-        return ch.isLetter
     }
 
     /// Слово закончено: если автоматика включена — проверяем и правим.
@@ -184,11 +177,14 @@ final class AutoSwitcher: ObservableObject {
         trace("слово «\(typed)» / «\(alternative)» → \(verdict == .wrongLayout ? "правим" : "не трогаем")")
         guard verdict == .wrongLayout else { return }
 
-        // Стираем слово вместе с уже вставленным разделителем и печатаем заново.
-        // Разделитель добавляем обратно тем же символом, каким он был набран.
+        // Стираем слово вместе с уже вставленным пробелом и печатаем заново.
+        // Знаки внутри слова переписываются той же клавишей в другой раскладке:
+        // «ghbdtn?» становится «привет,», потому что «?» и «,» — одна клавиша.
         Corrector.replace(charactersBack: typed.count + 1, with: alternative + " ")
         layouts.select(other)
-        undo = (inserted: alternative, original: typed)
+        // В возврат кладём и пробел: на экране сейчас «привет |», и без него
+        // возврат стёр бы пробел вместе с частью слова.
+        undo = (inserted: alternative + " ", original: typed + " ")
         correctionCount += 1
         lastAction = "\(typed) → \(alternative)"
         // На экране теперь текст в другой раскладке, а накопленные нажатия
@@ -234,16 +230,15 @@ final class AutoSwitcher: ObservableObject {
     }
 
     /// Что взять в ручную правку, когда ничего не выделено: последнее слово
-    /// вместе с разделителями после него. Несколько слов разом сознательно
-    /// не берём — для этого есть выделение, там границы задаёт человек,
-    /// а не догадка программы.
+    /// до пробела — вместе со знаками — и пробелы после него. Несколько слов
+    /// разом сознательно не берём: для этого есть выделение, там границы
+    /// задаёт человек, а не догадка программы.
     private func tailToFix(in current: LayoutService.Layout) -> [KeyPress] {
         guard !run.isEmpty else { return [] }
         var start: Int? = nil
         var index = run.count - 1
-        // Идём с конца: пропускаем хвостовые разделители, затем берём буквы.
-        while index >= 0, !isLetter(run[index]) { index -= 1 }
-        while index >= 0, isLetter(run[index]) { start = index; index -= 1 }
+        while index >= 0, run[index].isSpace { index -= 1 }            // хвостовые пробелы
+        while index >= 0, !run[index].isSpace { start = index; index -= 1 }
         guard let from = start else { return [] }
         return Array(run[from...])
     }
@@ -383,6 +378,42 @@ final class AutoSwitcher: ObservableObject {
         let map = charMap(from: pair.latin, to: pair.cyrillic)
         let converted = String("ghbdtn".map { map[$0] ?? $0 })
         if converted == "привет" { ok += 1 } else { bad += 1; print("FAIL: таблица символов дала \(converted)") }
+
+        // Слова целиком до пробела. Семь русских букв сидят на клавишах, которые
+        // в латинице — знаки препинания, и раньше слово рвалось на них.
+        // (код клавиши, Shift) → что должно получиться и что решить.
+        func press(_ spec: [(UInt16, Bool)]) -> [KeyPress] {
+            spec.map { KeyPress(keycode: $0.0, shift: $0.1) }
+        }
+        let n = false, S = true
+        let wholeWords: [(name: String, keys: [KeyPress], from: LayoutService.Layout,
+                          to: LayoutService.Layout, expect: String, verdict: WordChecker.Verdict)] = [
+            ("это",       press([(39,n),(45,n),(38,n)]),                        pair.latin, pair.cyrillic, "это", .wrongLayout),
+            ("хорошо",    press([(33,n),(38,n),(4,n),(38,n),(34,n),(38,n)]),    pair.latin, pair.cyrillic, "хорошо", .wrongLayout),
+            ("будет",     press([(43,n),(14,n),(37,n),(17,n),(45,n)]),          pair.latin, pair.cyrillic, "будет", .wrongLayout),
+            ("сообщение", press([(8,n),(38,n),(38,n),(43,n),(31,n),(17,n),(16,n),(11,n),(17,n)]),
+                                                                                pair.latin, pair.cyrillic, "сообщение", .wrongLayout),
+            ("что-то",    press([(7,n),(45,n),(38,n),(27,n),(45,n),(38,n)]),    pair.latin, pair.cyrillic, "что-то", .wrongLayout),
+            ("привет,",   press([(5,n),(4,n),(11,n),(2,n),(17,n),(45,n),(44,S)]),
+                                                                                pair.latin, pair.cyrillic, "привет,", .wrongLayout),
+            ("Хорошо",    press([(33,S),(38,n),(4,n),(38,n),(34,n),(38,n)]),    pair.latin, pair.cyrillic, "Хорошо", .wrongLayout),
+            ("what's",    press([(13,n),(4,n),(0,n),(17,n),(39,n),(1,n)]),      pair.cyrillic, pair.latin, "what's", .wrongLayout),
+            // Трогать нельзя: правильное слово со знаком, сокращение, цифры.
+            ("hello,",    press([(4,n),(14,n),(37,n),(37,n),(31,n),(43,n)]),    pair.latin, pair.cyrillic, "руддщб", .leaveAlone),
+            ("it's",      press([(34,n),(17,n),(39,n),(1,n)]),                  pair.latin, pair.cyrillic, "шеэы", .leaveAlone),
+            ("ghbdtn1",   press([(5,n),(4,n),(11,n),(2,n),(17,n),(45,n),(18,n)]),
+                                                                                pair.latin, pair.cyrillic, "привет1", .leaveAlone),
+        ]
+        for c in wholeWords {
+            let typed = LayoutService.render(c.keys, in: c.from)
+            let alternative = LayoutService.render(c.keys, in: c.to)
+            let verdict = checker.judge(typed: typed, alternative: alternative)
+            if alternative == c.expect && verdict == c.verdict { ok += 1 }
+            else {
+                bad += 1
+                print("FAIL: «\(c.name)»: набрано «\(typed)», вариант «\(alternative)», вердикт \(verdict)")
+            }
+        }
 
         // Короткие слова. Порог опущен до трёх букв, и здесь проверяется обе
         // стороны сделки: что короткие слова теперь правятся и что при этом

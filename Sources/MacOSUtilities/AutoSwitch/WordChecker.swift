@@ -37,33 +37,65 @@ final class WordChecker {
         return range.location == NSNotFound
     }
 
-    /// Главное решение: `typed` — то, что видно на экране сейчас,
-    /// `alternative` — то же нажатия в другой раскладке.
+    /// Главное решение по фрагменту между пробелами. `typed` — то, что видно
+    /// на экране, `alternative` — те же нажатия в другой раскладке.
+    ///
+    /// Фрагмент может содержать знаки: семь русских букв (х ъ ж э б ю ё) живут
+    /// на клавишах, которые в латинице являются скобками, запятой, точкой
+    /// и кавычкой. Поэтому «[jhjij» — это не скобка и слово, а «хорошо».
+    /// Решение принимается по «сердцевине» — фрагменту без знаков по краям,
+    /// а переписывается фрагмент целиком, со всеми знаками.
     func judge(typed: String, alternative: String) -> Verdict {
-        guard Self.looksLikeWord(typed), Self.looksLikeWord(alternative) else { return .leaveAlone }
-        // Переписываем только когда набранное словом не является, а вариант
-        // в другой раскладке — является. Если верны оба или неверны оба,
-        // угадывать нечего: молчим.
-        if !isRealWord(typed) && isRealWord(alternative) { return .wrongLayout }
-        return .leaveAlone
+        // Цифры — это коды, даты, версии, номера. Весь фрагмент не трогаем.
+        if typed.contains(where: \.isNumber) || alternative.contains(where: \.isNumber) {
+            return .leaveAlone
+        }
+        let typedCore = Self.core(typed)
+        let alternativeCore = Self.core(alternative)
+
+        // То, во что собираемся превратить, должно быть похоже на слово:
+        // буквы, внутри допускаются дефис и апостроф («что-то», «don't»).
+        // Порог длины считается по результату, а не по набранному: «'nj»
+        // даёт «это», и две буквы на экране — это три буквы по смыслу.
+        guard Self.isWordShaped(alternativeCore),
+              alternativeCore.filter(\.isLetter).count >= Self.minimumLetters
+        else { return .leaveAlone }
+
+        if !typedCore.isEmpty {
+            // ВЕРХНИЙ РЕГИСТР и camelCase — это сокращения и имена в коде,
+            // а не опечатки раскладки.
+            if Self.isAllCaps(typedCore) || Self.isCamelCase(typedCore) { return .leaveAlone }
+            // Набранное — настоящее слово: переписывать нечего.
+            if isRealWord(typedCore) { return .leaveAlone }
+        }
+        return isRealWord(alternativeCore) ? .wrongLayout : .leaveAlone
     }
 
-    /// Отсев того, что вообще не стоит проверять: слишком короткое, с цифрами,
-    /// ВЕРХНИМ РЕГИСТРОМ, camelCase или похожее на путь и адрес. Именно на этом
-    /// добре автопереключатели обычно и портят текст.
-    static func looksLikeWord(_ s: String) -> Bool {
-        // Порог в три буквы, а не в две. На трёх буквах ложных срабатываний
-        // не нашлось вовсе: «црн» становится «why», а «png», «sql», «как»,
-        // «the» остаются как есть. На двух буквах появляются — например
-        // «ns» превратилось бы в «ты», а это частое техническое сокращение.
-        guard s.count >= 3 else { return false }
-        if s.contains(where: { $0.isNumber }) { return false }
-        if s.contains(where: { "/\\@:._-+=#$~".contains($0) }) { return false }
-        let letters = s.filter { $0.isLetter }
-        guard letters.count == s.count else { return false }
-        if s == s.uppercased() && s != s.lowercased() { return false }   // ВЕРХНИЙ РЕГИСТР
-        // camelCase: заглавная не в начале слова
-        if s.dropFirst().contains(where: { $0.isUppercase }) { return false }
-        return true
+    /// Порог в три буквы, а не в две. На трёх ложных срабатываний не нашлось
+    /// вовсе: «црн» становится «why», а «png», «sql», «как», «the» остаются
+    /// как есть. На двух они появляются — «ns» превратилось бы в «ты».
+    static let minimumLetters = 3
+
+    /// Фрагмент без знаков по краям: «(привет),» → «привет».
+    static func core(_ s: String) -> String {
+        let chars = Array(s)
+        guard let first = chars.firstIndex(where: \.isLetter),
+              let last = chars.lastIndex(where: \.isLetter) else { return "" }
+        return String(chars[first...last])
+    }
+
+    /// Буквы, а внутри — только дефис и апостроф.
+    static func isWordShaped(_ s: String) -> Bool {
+        !s.isEmpty && s.allSatisfy { $0.isLetter || "-'’".contains($0) }
+    }
+
+    static func isAllCaps(_ s: String) -> Bool {
+        let letters = s.filter(\.isLetter)
+        return letters.count >= 2 && letters == letters.uppercased() && letters != letters.lowercased()
+    }
+
+    /// Заглавная не в начале слова: «someVariable», «iPhone».
+    static func isCamelCase(_ s: String) -> Bool {
+        s.filter(\.isLetter).dropFirst().contains(where: \.isUppercase)
     }
 }

@@ -69,6 +69,20 @@ func type(_ codes: [CGKeyCode]) {
     }
 }
 
+/// Нажатие с зажатым Shift. Модификатор идёт отдельными событиями,
+/// иначе система считает его зажатым и дальше всё печатается заглавными.
+func typeShifted(_ code: CGKeyCode) {
+    let src = CGEventSource(stateID: .hidSystemState)
+    let down = CGEvent(keyboardEventSource: src, virtualKey: 56, keyDown: true)!
+    down.type = .flagsChanged; down.flags = .maskShift; down.post(tap: .cghidEventTap); pump(0.04)
+    let kd = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true)!
+    kd.flags = .maskShift; kd.post(tap: .cghidEventTap); pump(0.04)
+    let ku = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)!
+    ku.flags = .maskShift; ku.post(tap: .cghidEventTap); pump(0.04)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: 56, keyDown: false)!
+    up.type = .flagsChanged; up.flags = []; up.post(tap: .cghidEventTap); pump(0.4)
+}
+
 /// Два «чистых» нажатия Shift подряд — горячее сочетание по умолчанию.
 func doubleShift() {
     let src = CGEventSource(stateID: .hidSystemState)
@@ -151,6 +165,10 @@ focusTextEdit()
 // g h b d t n — это «привет», набранное в латинской раскладке.
 let ghbdtn: [CGKeyCode] = [5, 4, 11, 2, 17, 45]
 let hello: [CGKeyCode] = [4, 14, 37, 37, 31]
+// Слова с буквами х ъ ж э б ю ё: в латинице эти клавиши — знаки препинания.
+let eto: [CGKeyCode] = [39, 45, 38]                  // 'nj      → это
+let horosho: [CGKeyCode] = [33, 38, 4, 38, 34, 38]   // [jhjij   → хорошо
+let chtoTo: [CGKeyCode] = [7, 45, 38, 27, 45, 38]    // xnj-nj   → что-то
 
 if mode == "auto" {
 print("== 1. слово не в той раскладке правится на пробеле ==")
@@ -197,6 +215,56 @@ let backToLatin = currentLayout()
 print("     раскладка переключилась на: \(backToLatin)")
 if !backToLatin.contains("ABC") { failures += 1; print("  FAIL: раскладка должна была стать латинской") }
 
+}
+
+if mode == "auto" {
+print("== 8. буква на клавише знака препинания (это, хорошо) ==")
+requireTextEdit(); selectLatin(); clearField()
+type(eto + [49])
+pump(1.2)
+check("'nj + пробел", fieldText(), "это ")
+requireTextEdit(); selectLatin(); clearField()
+type(horosho + [49])
+pump(1.2)
+check("[jhjij + пробел", fieldText(), "хорошо ")
+
+print("== 9. слово через дефис правится целиком ==")
+requireTextEdit(); selectLatin(); clearField()
+type(chtoTo + [49])
+pump(1.2)
+check("xnj-nj + пробел", fieldText(), "что-то ")
+
+print("== 10. знак препинания переписывается вместе со словом ==")
+requireTextEdit(); selectLatin(); clearField()
+type(ghbdtn)
+typeShifted(44)                 // Shift+/ : в латинице «?», в русской — запятая
+type([49])
+pump(1.2)
+check("ghbdtn? + пробел", fieldText(), "привет, ")
+
+print("== 11. правильное слово с запятой не трогается ==")
+requireTextEdit(); selectLatin(); clearField()
+type(hello + [43] + [49])       // клавиша «,» — в русской раскладке это «б»
+pump(1.2)
+check("hello, + пробел", fieldText(), "hello, ")
+
+print("== 12. возврат сразу после автоправки ==")
+requireTextEdit(); selectLatin(); clearField()
+type(ghbdtn + [49])
+pump(1.2)
+doubleShift()
+pump(1.5)
+check("автоправка, затем двойной Shift", fieldText(), "ghbdtn ")
+}
+
+if mode == "manual" {
+print("== 13. ручная правка слова с буквой на клавише знака ==")
+requireTextEdit(); selectLatin(); clearField()
+type(horosho)
+pump(0.5)
+doubleShift()
+pump(1.5)
+check("[jhjij → хорошо", fieldText(), "хорошо")
 }
 
 if mode == "manual" {

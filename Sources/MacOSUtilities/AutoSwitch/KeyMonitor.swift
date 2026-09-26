@@ -11,8 +11,12 @@ import Carbon
 final class KeyMonitor {
 
     enum Signal {
-        case letter(KeyPress)      // обычная клавиша с буквой
-        case separator(KeyPress)   // пробел или знак препинания — они остаются в тексте
+        /// Любая печатная клавиша: буква, знак, цифра. Всё это часть слова.
+        /// Знаки препинания здесь не граница: семь русских букв (х ъ ж э б ю ё)
+        /// сидят на клавишах, которые в латинице — скобки, запятая, точка,
+        /// кавычка. Считать их границей — значит рвать «это», «будет», «уже».
+        case char(KeyPress)
+        case space(KeyPress)       // граница слова
         case erase                 // Backspace: убираем последнее нажатие
         case reset                 // курсор ушёл — набранное больше не под ним
         case hotkey                // просили исправить вручную
@@ -208,24 +212,25 @@ final class KeyMonitor {
             onSignal?(.reset)
         case 123...126, 115, 116, 119, 121, 117:   // стрелки, Home/End, PageUp/Down, Delete
             onSignal?(.reset)
+        case 49:                                   // пробел — единственная граница слова
+            onSignal?(.space(KeyPress(keycode: keycode, shift: flags.contains(.maskShift))))
         default:
-            let shift = flags.contains(.maskShift)
-            let press = KeyPress(keycode: keycode, shift: shift)
-            if isLetterKey(press) {
-                onSignal?(.letter(press))
-            } else {
-                onSignal?(.separator(press))
-            }
+            let press = KeyPress(keycode: keycode, shift: flags.contains(.maskShift))
+            // Клавиши, которые ничего не печатают (F1–F12 и подобные), в слово
+            // не берём: иначе при правке стёрли бы на символ больше, чем набрано.
+            if printsText(press) { onSignal?(.char(press)) }
         }
         return false
     }
 
-    /// Буква ли это в текущей раскладке. Цифры, знаки и пробел — граница слова.
-    private func isLetterKey(_ press: KeyPress) -> Bool {
+    /// Печатает ли клавиша видимый символ в текущей раскладке.
+    private func printsText(_ press: KeyPress) -> Bool {
         guard let src = cachedLayout,
               let text = LayoutService.translate(source: src, keycode: press.keycode,
                                                  shift: press.shift),
-              let ch = text.first else { return false }
-        return ch.isLetter
+              let scalar = text.unicodeScalars.first else { return false }
+        if scalar.properties.generalCategory == .control { return false }
+        if scalar.properties.generalCategory == .privateUse { return false }   // F-клавиши
+        return true
     }
 }

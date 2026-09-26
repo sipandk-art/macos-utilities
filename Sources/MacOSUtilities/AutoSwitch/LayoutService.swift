@@ -111,4 +111,7 @@ final class LayoutService {
 struct KeyPress: Equatable {
     let keycode: UInt16
     let shift: Bool
+
+    /// Пробел — единственная граница слова.
+    var isSpace: Bool { keycode == 49 }
 }
