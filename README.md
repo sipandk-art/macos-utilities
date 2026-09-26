@@ -32,10 +32,11 @@
 
 ## Установка
 
-Скачать `MacOS-Utilities-1.7.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.7.1.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
-macOS 13 (Ventura) и новее, Apple Silicon и Intel.
+macOS 13 (Ventura) и новее, Apple Silicon и Intel. Больше ничего ставить не нужно —
+ни Python, ни инструменты разработчика.
 
 ## Переключение раскладки
 
@@ -225,7 +226,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.7.0.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.7.1.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 

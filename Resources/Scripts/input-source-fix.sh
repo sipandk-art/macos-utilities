@@ -24,6 +24,9 @@
 #
 # ПРАВА. sudo/root НЕ НУЖЕН: всё перечисленное — пользовательские настройки.
 # Пароль администратора скрипт не спрашивает и спрашивать не будет.
+#
+# ЗАВИСИМОСТИ. Только то, что есть в любой macOS: bash, defaults, plutil,
+# PlistBuddy, hidutil, launchctl. Python и инструменты разработчика не нужны.
 
 set -u
 
@@ -110,6 +113,8 @@ t() {
                     en="Could not create the login item file" ;;
     err_hotkey)     ru="Не удалось назначить сочетание клавиш"
                     en="Could not assign the keyboard shortcut" ;;
+    err_backup)     ru="Не удалось сохранить прежние настройки — ничего не менял"
+                    en="Could not save the previous settings — nothing was changed" ;;
     no_backup)      ru="Отменять нечего: сохранённых настроек нет"
                     en="Nothing to undo: no saved settings found" ;;
     agent_restored) ru="файл автозагрузки возвращён к прежнему виду"
@@ -163,39 +168,29 @@ hotkey_ok() {
 }
 
 # Сколько языков ввода включено (переключать имеет смысл от двух).
+# Считаются раскладки клавиатуры; методы ввода вроде пиньиня — нет.
 layout_count() {
-  python3 - <<'PY' 2>/dev/null || echo 0
-import subprocess, plistlib
-raw = subprocess.run(['defaults','export','com.apple.HIToolbox','-'],
-                     capture_output=True).stdout
-try:
-    d = plistlib.loads(raw)
-except Exception:
-    print(0); raise SystemExit
-print(sum(1 for s in d.get('AppleEnabledInputSources', [])
-          if 'KeyboardLayout Name' in s))
-PY
+  defaults export com.apple.HIToolbox - 2>/dev/null \
+    | plutil -extract AppleEnabledInputSources xml1 -o - - 2>/dev/null \
+    | grep -c '<key>KeyboardLayout Name</key>'
 }
 
 # Caps Lock переведён в «Нет действия» в настройках клавиатуры? Тогда не сработает.
+# Печатает ключи (по одному на клавиатуру), где Caps Lock ведёт в никуда:
+# назначение -1 или его нет вовсе. `defaults read` пишет каждый словарь как
+# { ...Dst = "-1"; ...Src = 30064771129; } — пробелы и кавычки убираются,
+# и каждый словарь становится строкой, которую удобно проверить.
 capslock_noaction_keys() {
-  python3 - <<'PY' 2>/dev/null
-import subprocess, plistlib
-CAPS = 30064771129
-raw = subprocess.run(['defaults','-currentHost','export','-g','-'],
-                     capture_output=True).stdout
-try:
-    d = plistlib.loads(raw)
-except Exception:
-    raise SystemExit
-for k, v in d.items():
-    if not k.startswith('com.apple.keyboard.modifiermapping'):
-        continue
-    for m in (v if isinstance(v, list) else []):
-        if m.get('HIDKeyboardModifierMappingSrc') == CAPS and \
-           m.get('HIDKeyboardModifierMappingDst') in (-1, None):
-            print(k)
-PY
+  local key
+  for key in $(defaults -currentHost read -g 2>/dev/null \
+                 | grep -o 'com\.apple\.keyboard\.modifiermapping[^" =;]*' | sort -u); do
+    defaults -currentHost read -g "$key" 2>/dev/null \
+      | tr -d ' \t\n"' | grep -o '{[^}]*}' \
+      | awk -v src="Src=$CAPS_HID_DEC;" '
+          index($0, src) && (index($0, "Dst=-1;") || !index($0, "Dst=")) { hit = 1 }
+          END { exit !hit }' \
+      && echo "$key"
+  done
 }
 
 launchagent_loaded() {
@@ -251,25 +246,34 @@ save_backup() {
   # включение их не перезаписывает, иначе отмена вернула бы уже изменённое.
   [ -f "$BACKUP" ] && { step backup_kept; return 0; }
   mkdir -p "$BACKUP_DIR"
-  python3 - "$BACKUP" "$PLIST" "$HOTKEY_ID" <<'PY'
-import json, os, subprocess, sys
-backup, plist, hotkey = sys.argv[1], sys.argv[2], sys.argv[3]
-hk_file = os.path.expanduser('~/Library/Preferences/com.apple.symbolichotkeys.plist')
-hk = subprocess.run(['/usr/libexec/PlistBuddy', '-x',
-                     '-c', f'Print :AppleSymbolicHotKeys:{hotkey}', hk_file],
-                    capture_output=True)
-data = {
-    'user_key_mapping': subprocess.run(['hidutil', 'property', '--get', 'UserKeyMapping'],
-                                       capture_output=True, text=True).stdout.strip(),
-    'hotkey_xml': hk.stdout.decode() if hk.returncode == 0 else None,
-    'launchagent_existed': os.path.exists(plist),
-    'launchagent_body': open(plist).read() if os.path.exists(plist) else None,
-}
-with open(backup, 'w') as f:
-    json.dump(data, f, indent=2)
-PY
+
+  # Копия собирается в plist и затем переводится в JSON: plutil принимает
+  # значения как есть, без ручного экранирования кавычек и переводов строк.
+  # Чего не было (шортката, файла автозагрузки), того и в копии нет.
+  local tmp hk
+  tmp=$(mktemp) || fail err_backup
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict/></plist>\n' > "$tmp"
+  plutil -insert user_key_mapping -string \
+    "$(hidutil property --get UserKeyMapping 2>/dev/null)" "$tmp"
+  if hk=$(/usr/libexec/PlistBuddy -x -c "Print :AppleSymbolicHotKeys:$HOTKEY_ID" \
+            "$HOME/Library/Preferences/com.apple.symbolichotkeys.plist" 2>/dev/null); then
+    plutil -insert hotkey_xml -string "$hk" "$tmp"
+  fi
+  if [ -f "$PLIST" ]; then
+    plutil -insert launchagent_existed -bool YES "$tmp"
+    plutil -insert launchagent_body -string "$(cat "$PLIST")" "$tmp"
+  else
+    plutil -insert launchagent_existed -bool NO "$tmp"
+  fi
+  # Без копии отменить будет нечем — тогда лучше ничего не менять.
+  plutil -convert json -o "$BACKUP" "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; fail err_backup; }
+  rm -f "$tmp"
   step backup_saved "$BACKUP"
 }
+
+# Значение из сохранённой копии. Пусто, если ключа нет или там null:
+# копии прежних версий хранили «ничего» как null.
+backup_get() { plutil -extract "$1" raw -o - "$BACKUP" 2>/dev/null; }
 
 do_apply() {
   local major; major=$(macos_major)
@@ -383,31 +387,20 @@ do_revert() {
 
   # Возврат автозагрузки в исходное состояние.
   launchctl bootout "gui/$(id -u)" "$PLIST" >/dev/null 2>&1
-  local had_agent
-  had_agent=$(python3 - "$BACKUP" "$PLIST" <<'PY'
-import json, os, sys
-backup, plist = sys.argv[1], sys.argv[2]
-d = json.load(open(backup))
-if d.get('launchagent_existed') and d.get('launchagent_body'):
-    open(plist, 'w').write(d['launchagent_body'])
-    print('restored')
-elif os.path.exists(plist):
-    os.remove(plist)
-    print('removed')
-PY
-)
-  [ "$had_agent" = restored ] && step agent_restored
-  [ "$had_agent" = removed ]  && step agent_removed
+  local body; body=$(backup_get launchagent_body)
+  if [ "$(backup_get launchagent_existed)" = true ] && [ -n "$body" ]; then
+    printf '%s\n' "$body" > "$PLIST"
+    step agent_restored
+  elif [ -f "$PLIST" ]; then
+    rm -f "$PLIST"
+    step agent_removed
+  fi
   [ -f "$PLIST" ] && launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1
 
   # Возврат ремапа. Пустое сохранённое значение = ремапа не было.
-  local had_mapping
-  had_mapping=$(python3 -c "
-import json
-d=json.load(open('$BACKUP'))
-m=(d.get('user_key_mapping') or '').strip()
-print('yes' if m and m != '(null)' and 'HIDKeyboardModifierMappingSrc' in m else 'no')")
-  [ "$had_mapping" = yes ] && step remap_complex
+  case "$(backup_get user_key_mapping)" in
+    *HIDKeyboardModifierMappingSrc*) step remap_complex ;;
+  esac
   hidutil property --set '{"UserKeyMapping":[]}' >/dev/null
   step remap_dropped
 
@@ -417,11 +410,7 @@ print('yes' if m and m != '(null)' and 'HIDKeyboardModifierMappingSrc' in m else
   # через демон настроек и сразу перезаписывает ключ целиком, а вот удалить
   # вложенный ключ он не умеет — там нужен PlistBuddy, который правит файл
   # мимо кэша демона, поэтому кэш после него приходится сбрасывать.
-  local hotkey_xml
-  hotkey_xml=$(python3 -c "
-import json
-d=json.load(open('$BACKUP'))
-print(d.get('hotkey_xml') or '')")
+  local hotkey_xml; hotkey_xml=$(backup_get hotkey_xml)
 
   if [ -n "$hotkey_xml" ]; then
     defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add "$HOTKEY_ID" "$hotkey_xml"
@@ -441,6 +430,10 @@ print(d.get('hotkey_xml') or '')")
   emit RESULT ok
   emit SUMMARY "$(t sum_reverted)"
 }
+
+# Подключение через `source` (так делает проверка scripts/test-input-source-fix.sh)
+# даёт только функции, без запуска.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 # ── разбор аргументов ────────────────────────────────────────────────────────
 
