@@ -109,8 +109,8 @@ struct KeepAwakeView: View {
                          value: keepAwake.isOn ? loc.t("не отключается", "stays connected")
                                                : loc.t("как в настройках", "as set in Settings"),
                          kind: keepAwake.isOn ? .ok : .idle,
-                         hint: loc.t("Wi-Fi и VPN не рвутся при простое",
-                                     "Wi-Fi and VPN don't drop while idle"))
+                         hint: loc.t("Wi-Fi и VPN не рвутся при простое: раз в 30 с — короткий запрос к Google",
+                                     "Wi-Fi and VPN don't drop while idle: a tiny request to Google every 30 s"))
 
                 CheckRow(title: loc.t("Экран гаснет через", "The screen turns off after"),
                          value: displaySleepText,

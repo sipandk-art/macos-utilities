@@ -20,6 +20,9 @@ enum AppInfo {
 /// Утверждения на дисплей сознательно НЕ берутся: экран продолжает гаснуть
 /// по системному таймеру, машина при этом не засыпает. Так и было задумано —
 /// длинная задача не обрывается, а панель не жжёт подсветку впустую.
+///
+/// Плюс пинги (см. `NetworkPing`): Mac не спит, но VPN-туннель без трафика
+/// закрывают как неактивный — роутер, провайдер или сам сервер VPN.
 @MainActor
 final class KeepAwake: ObservableObject {
 
@@ -30,6 +33,8 @@ final class KeepAwake: ObservableObject {
 
     private var systemAssertion: IOPMAssertionID = 0
     private var networkAssertion: IOPMAssertionID = 0
+    private var pingTimer: Timer?
+    private var pingActivity: NSObjectProtocol?
     private let defaultsKey = "keepAwakeEnabled"
 
     private var didBootstrap = false
@@ -67,6 +72,7 @@ final class KeepAwake: ObservableObject {
         }
         systemAssertion = sys
         networkAssertion = netOK ? net : 0
+        startPings()
         isOn = true
         AppDefaults.store.set(true, forKey: defaultsKey)
         refreshDisplaySleep()
@@ -75,8 +81,28 @@ final class KeepAwake: ObservableObject {
     func disable() {
         if systemAssertion != 0 { IOPMAssertionRelease(systemAssertion); systemAssertion = 0 }
         if networkAssertion != 0 { IOPMAssertionRelease(networkAssertion); networkAssertion = 0 }
+        stopPings()
         isOn = false
         AppDefaults.store.set(false, forKey: defaultsKey)
+    }
+
+    private func startPings() {
+        // Окно закрыто — и macOS притормаживает фоновое приложение (App Nap):
+        // таймер срабатывал бы раз в несколько минут, а не раз в 30 секунд.
+        pingActivity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "MacOS Utilities: не давать VPN простаивать")
+        NetworkPing.send()
+        pingTimer = Timer.scheduledTimer(withTimeInterval: NetworkPing.interval, repeats: true) { _ in
+            NetworkPing.send()
+        }
+    }
+
+    private func stopPings() {
+        pingTimer?.invalidate()
+        pingTimer = nil
+        if let activity = pingActivity { ProcessInfo.processInfo.endActivity(activity) }
+        pingActivity = nil
     }
 
     /// Через сколько минут бездействия гаснет экран — читаем системную настройку,
@@ -104,5 +130,23 @@ final class KeepAwake: ObservableObject {
     func openDisplaySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension")!
         NSWorkspace.shared.open(url)
+    }
+}
+
+/// Короткий запрос к Google раз в 30 секунд, пока включён режим «не спать».
+///
+/// При VPN весь трафик идёт через туннель, и запрос не даёт ему простаивать.
+/// Обычный ping (ICMP) для этого не годится: VPN-клиенты со своим виртуальным
+/// интерфейсом отвечают на него сами — за миллисекунду, туннель не трогая.
+enum NetworkPing {
+    static let interval: TimeInterval = 30
+    /// Google отдаёт здесь пустой ответ 204 — адрес ровно для проверки связи.
+    static let url = URL(string: "https://www.gstatic.com/generate_204")!
+
+    /// Ответ не нужен: важен сам трафик через туннель.
+    static func send() {
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+                                 timeoutInterval: 10)
+        URLSession.shared.dataTask(with: request).resume()
     }
 }

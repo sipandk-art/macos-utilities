@@ -32,7 +32,7 @@
 
 ## Установка
 
-Скачать `MacOS-Utilities-1.7.1.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
+Скачать `MacOS-Utilities-1.8.0.dmg` из [Releases](https://github.com/sipandk-art/macos-utilities/releases),
 открыть, перетащить **MacOS Utilities** в **Applications**.
 
 macOS 13 (Ventura) и новее, Apple Silicon и Intel. Больше ничего ставить не нужно —
@@ -202,12 +202,22 @@ AirDrop; launchd поднимает его обратно сам.
 Утверждение на дисплей сознательно не берётся, поэтому экран продолжает гаснуть
 по системному таймеру — подсветка не тратится впустую, машина остаётся в работе.
 
+Пока режим включён, раз в 30 секунд уходит короткий запрос к Google
+(`https://www.gstatic.com/generate_204`, пустой ответ). Mac при этом и так
+не спит, но VPN-туннель без трафика закрывают как неактивный — роутер, провайдер
+или сам сервер VPN. Запрос идёт через туннель и не даёт ему простаивать.
+Обычный ping тут не помогает: VPN-клиенты со своим виртуальным интерфейсом
+отвечают на него сами, туннель не трогая. Трафик — около 3 МБ в сутки.
+
+Закрытая крышка усыпляет Mac в любом случае — так устроена macOS.
+
 Режим действует, пока приложение запущено. Состояние кнопки запоминается:
 при следующем запуске режим включится сам.
 
 ## Чего приложение не делает
 
-- Не отправляет никуда данные и не ходит в сеть.
+- Не отправляет никуда ваши данные. В сеть ходит только в режиме «Mac не уходит
+  в сон»: раз в 30 секунд пустой запрос к Google, чтобы VPN не простаивал.
 - Не ставит фоновых агентов от своего имени. Единственный LaunchAgent —
   `com.user.capslock2f18` — появляется только по кнопке «Включить» в первом
   разделе и удаляется по кнопке «Отменить изменения».
@@ -226,7 +236,7 @@ cd macos-utilities
 ```
 
 Нужен Xcode или Command Line Tools со Swift 5.9+. Результат —
-`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.7.1.dmg`.
+`build/MacOS Utilities.app` и `dist/MacOS-Utilities-1.8.0.dmg`.
 
 Скрипты работают и сами по себе, без приложения:
 
@@ -257,7 +267,8 @@ wrong layout (keystrokes are re-rendered through both layouts and checked agains
 the macOS dictionary), a cleaner for stuck AirDrop share-sheet helper processes
 with a `sharingd` restart, a clipboard history in the menu bar (⌃⌘V, pins,
 password-manager copies skipped), and a keep-awake toggle built on IOKit power
-assertions that lets the display sleep while the system stays up. Every fix is a
+assertions that lets the display sleep while the system stays up and sends a
+tiny request to Google every 30 s so an idle VPN tunnel isn't dropped. Every fix is a
 commented bash script shipped inside the bundle and viewable from the UI before
 you run it. No admin password is required except for the optional Wi-Fi restart.
 
